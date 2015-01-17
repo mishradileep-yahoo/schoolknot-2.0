@@ -1,32 +1,36 @@
-<?php //pr($node); ?>
-<div class="profileWrap">
-  <?php
-  	  if(isset($node->field_school_profile_image['und'][0]['uri'])) {
-        $school_profile_image = array(
-          'style_name' => '776x287_resize',
-          'path' => $node->field_school_profile_image['und'][0]['uri'],
-          );
-        print theme('image_style',$school_profile_image);
-  	  }
-  	  else {
-  	  	
-  	  }
+<?php $logo_class = ''; ?>
+
+
+<div class="school-header">
+	<?php if($node->field_school_profile_image) {?>
+	<div class="school-header-profile-img">
+		<?php
+      $school_profile_image = array(
+        'style_name' => '776x287_resize',
+        'path' => $node->field_school_profile_image['und'][0]['uri'],
+      );
+      print theme('image_style',$school_profile_image);
+		?>
+	</div>
+	<?php 
+	  $logo_class = 'add-logo-position';
+	} ?>
+	
+	<div class="school-header-details-wrapper">
+	<?php if(isset($node->field_logo['und'][0]['uri'])) { ?>
+	<div class="school-header-logo <?php print $logo_class; ?>">
+    <?php
+      $school_logo_image = array(
+      'style_name' => '158x158_resize',
+      'path' => $node->field_logo['und'][0]['uri'],
+      );
+      print theme('image_style',$school_logo_image);
     ?>
-  <div class="profileThumb">
-  	<?php
-  	  if(isset($node->field_logo['und'][0]['uri'])) {
-        $school_logo_image = array(
-          'style_name' => '158x158_resize',
-          'path' => $node->field_logo['und'][0]['uri'],
-          );
-        print theme('image_style',$school_logo_image);
-  	  }
-    ?>
-  </div>
-  <div class="schDetailWrap">
-  
-  <h2>
-  	<?php print $node->title?><br>
+	</div>
+	<?php } ?>
+	
+	<div class="school-header-details">
+	<h2><?php print $node->title?></h2>
   	<span class="addr">
 			<?php print $node->field_address_line_1['und'][0]['value']; ?>, <?php print $node->field_address_line_2['und'][0]['value']; ?><br>
 		</span>
@@ -39,20 +43,9 @@
 			$rating = _get_school_rating($node->nid);
 			print print_star_spans($rating); ?>
 		</div>
-		
-  </h2>
-  <!-- 
-  <a href="#" class="following">889 Parents Following</a>
-  <div class="rating">
-    <span class="star rated"></span>
-    <span class="star rated"></span>
-    <span class="star rated"></span>
-    <span class="star"></span>
-    <span class="star"></span>
-  </div>
-     -->
-  </div>
-
+	</div>
+	
+	</div>
 </div>
 
  

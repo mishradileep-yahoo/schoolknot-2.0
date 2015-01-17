@@ -956,3 +956,11 @@ html.js input.throbbing {
 	margin: 20px 0;
 }
 .view-school-group-members .schoolInfo .schDtl {float: left}
+
+
+.school-header {position: relative;}
+.school-header .school-header-details-wrapper {clear: both;overflow: hidden;margin: 0 0 20px 0;}
+.school-header .school-header-logo {border: 1px solid #BDBDBD;width: 158px;float: left;}
+.school-header .school-header-logo.add-logo-position {position: absolute; top:230px;margin: 0 20px;}
+.school-header .school-header-details {margin-left: 200px;font-size: 18px;color: #2E79B2;}
+.school-header .school-header-details h2 {font-size: 18px;font-weight:600; margin:0;}
