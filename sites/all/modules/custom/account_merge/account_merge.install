@@ -1,0 +1,49 @@
+<?php
+
+/**
+ * @file
+ * Account Merge actions install file.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function account_merge_schema() {
+  $schema = array();
+
+  $schema['account_merge'] = array(
+    'fields' => array(
+      'amid' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'disp-width' => '5',
+      ),
+      'host_user' => array(
+        'type' => 'int',
+        'size' => 'small',
+        'disp-width' => '5',
+      ),
+      'guest_user' => array(
+        'type' => 'int',
+        'size' => 'small',
+        'disp-width' => '5',
+      ),
+      'request_timestamp' => array(
+        'type' => 'int',
+        'size' => 'big',
+        'default' => 0,
+        'disp-width' => '5',
+      ),
+      'request_status' => array(
+        'type' => 'int',
+        'size' => 'small',
+        'not null' => TRUE,
+        'default' => 0,
+        'disp-width' => '5',
+      ),
+    ),
+    'primary key' => array('amid'),
+  );
+
+  return $schema;
+}

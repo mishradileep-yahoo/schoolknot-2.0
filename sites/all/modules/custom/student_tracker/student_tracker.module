@@ -1,0 +1,307 @@
+<?php
+/**
+ * Implements hook_permission().
+ */
+function student_tracker_permission () {
+  return array(
+      'browse profile' => array(
+          'title' => t('Browse Student Profile'),
+          'description' => t('Allow Browse Student Profile.')
+      )
+  );
+}
+
+
+function student_tracker_menu() {
+  $items = array();
+  $items['student-tracker/progress-sheet'] = array(
+  	'title' => 'Student Progress Sheet',
+    'description' => 'Student Progress Sheet',
+    'page callback' => 'student_progress_sheet',
+    'access arguments' => array('browse profile'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['student-tracker/progress-sheet/%'] = array(
+  	'title' => 'Student Progress Sheet',
+    'description' => 'Student Progress Sheet',
+    'page callback' => 'student_progress_sheet_for_other',
+  	'page arguments' => array(2),
+    'access arguments' => array('browse profile'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  return $items;
+}
+
+function student_progress_sheet() {
+  global $user;
+  drupal_add_js('https://www.google.com/jsapi', 'external');
+  drupal_set_title('Student Progress Sheet', PASS_THROUGH);
+  $marks = _user_complete_marks($user);
+  return theme('student_progress_page', $marks);
+}
+
+function student_progress_sheet_for_other($uid) {
+  $user = user_load($uid);
+  drupal_add_js('https://www.google.com/jsapi', 'external');
+  drupal_set_title('Student Progress Sheet', PASS_THROUGH);
+  $marks = _user_complete_marks($user);
+  return theme('student_progress_page', $marks);
+}
+
+/**
+ * Implements hook_block_info().
+ * This hook declares what blocks are provided by the module.
+ */
+function student_tracker_block_info () {
+  $blocks['student_progress_data_complete_line'] = array(
+  	'info' => t('Status Progress Data Complete Status Line'),
+  );
+  $blocks['student_progress_bar_graph'] = array(
+  	'info' => t('Status Progress Data Bar Graph'),
+  );
+  $blocks['student_progress_pie_graph'] = array(
+  	'info' => t('Status Progress Data Pie Graph'),
+  );
+  $blocks['student_progress_line_graph'] = array(
+  	'info' => t('Status Progress Data Line Graph'),
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ * This hook generates the contents of the blocks themselves.
+ */
+function student_tracker_block_view ($delta = '', $user = '') {
+  $block = array();
+  switch ($delta) {
+    case 'student_progress_data_complete_line':
+      $block['subject'] = t('Status Progress Data Complete Status Line');
+      $block['content'] = _student_progress_data_complete_line($user);
+      break;
+    case 'student_progress_bar_graph':
+      $block['subject'] = t('Status Progress Data Bar Graph');
+      $block['content'] = _student_progress_bar_graph($user);
+      break;
+    case 'student_progress_pie_graph':
+      $block['subject'] = t('Status Progress Data Pie Graph');
+      $block['content'] = _student_progress_pie_graph($user);
+      break;
+     case 'student_progress_line_graph':
+      $block['subject'] = t('Status Progress Data Line Graph');
+      $block['content'] = _student_progress_line_graph($user);
+      break;
+  }
+  return $block;
+}
+
+function student_tracker_theme() {
+  $module_path = drupal_get_path('module', 'student_tracker');
+  $base = array(
+    'path' => $module_path . '/theme',   
+  );
+  return array(
+    'student_tracker_bar_graph' => $base + array(
+      'template' => 'student_tracker_bar_graph',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),
+    'student_progress_data_complete_line' => $base + array(
+      'template' => 'student_progress_data_complete_line',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ), 
+    'student_progress_bar_graph' => $base + array(
+      'template' => 'student_progress_bar_graph',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),
+    'student_progress_pie_graph' => $base + array(
+      'template' => 'student_progress_pie_graph',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),
+    'student_progress_line_graph' => $base + array(
+      'template' => 'student_progress_line_graph',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),
+    'student_progress_page' => $base + array(
+      'template' => 'student_progress_page',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),    
+  ); 
+}
+
+
+
+/* Helper Function */
+function _student_progress_data($student_user = '') {
+  if(!is_object($student_user)) {
+    $userId = arg(1);
+    $student_user = user_load($userId);
+  }
+  //pr($student_user);
+  $user_subject_ids = array();
+  foreach ($student_user->field_class['und'][0]['entity']->field_subjects['und'] as $subject){
+    $user_subject_ids[] = $subject['target_id'];
+  }
+  $user_subjects = node_load_multiple($user_subject_ids);
+  $subject_marks_data = _user_subject_marks_with_class_avg($student_user, $student_user->field_class);
+  //pr($subject_marks_data);
+  
+  $result = array('subject_marks_data' => $subject_marks_data, 'student_user' => $student_user);
+  
+  return theme('student_progress_data_complete_line', array('data' => $result));
+  
+}
+
+
+function _student_progress_data_complete_line($marks_subject_wise) {
+  
+  /*
+  if(!is_object($student_user)) {
+    $userId = arg(1);
+    $student_user = user_load($userId);
+  }
+  
+  $subject_wise_marks = _user_complete_marks($student_user);
+  */
+  return theme('student_progress_data_complete_line', array('data' => $marks_subject_wise));
+  
+}
+
+function _student_progress_bar_graph($marks_subject_wise) {
+  return theme('student_progress_bar_graph', array('data' => $marks_subject_wise));
+}
+
+function _student_progress_pie_graph($marks_subject_wise) {
+  return theme('student_progress_pie_graph', array('data' => $marks_subject_wise));
+}
+
+function _student_progress_line_graph($marks_subject_wise) {
+  return theme('student_progress_line_graph', array('data' => $marks_subject_wise));
+}
+
+function _user_subject_marks_with_class_avg($student_user = '',  $class = '') {
+  //pr($class);
+  $query = db_select('node', 'n');
+	$query->leftJoin('field_data_field_student', 'student', 'n.nid = student.entity_id');
+	$query->leftJoin('field_data_field_class', 'class', 'n.nid = class.entity_id');
+	$query->leftJoin('field_data_field_subject', 'subject', 'n.nid = subject.entity_id');
+	$query->leftJoin('node', 'subject_node', 'subject_node.nid = subject.field_subject_target_id');
+	
+	$query->leftJoin('field_data_field_max_marks', 'max_marks', 'n.nid = max_marks.entity_id');
+	$query->leftJoin('field_data_field_passing_marks', 'passing_marks', 'n.nid = passing_marks.entity_id');
+	$query->leftJoin('field_data_field_scored_marks', 'scored_marks', 'n.nid = scored_marks.entity_id');
+	
+	$query
+  	->condition('n.type', 'student_progress_data_', '=')
+  	->condition('class.field_class_target_id', $class['und'][0]['target_id'], '=')
+  	->fields('n', array('nid', 'title'))
+  	->fields('student', array('field_student_target_id'))
+  	->fields('class', array('field_class_target_id'))
+  	->fields('subject', array('field_subject_target_id'))
+  	->fields('subject_node', array('title'))
+  	
+  	->fields('max_marks', array('field_max_marks_value'))
+  	->fields('passing_marks', array('field_passing_marks_value'))
+  	->fields('scored_marks', array('field_scored_marks_value'));
+  	
+	$result = $query->execute();
+  $marks_subject_data = array();
+	while($record = $result->fetchAssoc()) {
+    $marks_subject_data[$record['field_subject_target_id']]['subject_title'] = $record['subject_node_title'];
+    $marks_subject_data[$record['field_subject_target_id']]['max_marks'] = $record['field_max_marks_value'];
+    $marks_subject_data[$record['field_subject_target_id']]['passing_marks'] = $record['field_passing_marks_value'];
+    $marks_subject_data[$record['field_subject_target_id']]['data'][$record['field_student_target_id']] = $record['field_scored_marks_value'];
+  }
+  
+  foreach($marks_subject_data as $subject_id => $subject_data) {
+    $marks_subject_data[$subject_id]['class_avg'] = array_sum($subject_data['data']) / count($subject_data['data']);
+  }
+  
+  return $marks_subject_data;
+}
+
+function _user_complete_marks($student_user = '') {
+  //pr($class);
+  $query = db_select('node', 'n');
+	$query->leftJoin('field_data_field_student', 'student', 'n.nid = student.entity_id');
+	$query->leftJoin('field_data_field_class', 'class', 'n.nid = class.entity_id');
+	$query->leftJoin('field_data_field_subject', 'subject', 'n.nid = subject.entity_id');
+	$query->leftJoin('field_data_field_exam', 'exam', 'n.nid = exam.entity_id');
+	$query->leftJoin('node', 'subject_node', 'subject_node.nid = subject.field_subject_target_id');
+	$query->leftJoin('node', 'exam_node', 'exam_node.nid = exam.field_exam_target_id');
+	
+	$query->leftJoin('field_data_field_max_marks', 'max_marks', 'n.nid = max_marks.entity_id');
+	$query->leftJoin('field_data_field_passing_marks', 'passing_marks', 'n.nid = passing_marks.entity_id');
+	$query->leftJoin('field_data_field_scored_marks', 'scored_marks', 'n.nid = scored_marks.entity_id');
+	
+	$query->leftJoin('field_data_field_exam_schedule', 'exam_date', 'exam_node.nid = exam_date.entity_id');
+	
+	$query
+  	->condition('n.type', 'student_progress_data_', '=')
+  	->condition('student.field_student_target_id', $student_user->uid, '=')
+  	->fields('n', array('nid', 'title'))
+  	->fields('student', array('field_student_target_id'))
+  	->fields('class', array('field_class_target_id'))
+  	->fields('subject', array('field_subject_target_id'))
+  	->fields('subject_node', array('title'))
+  	->fields('exam', array('field_exam_target_id'))
+  	->fields('exam_node', array('title'))
+  	
+  	->fields('max_marks', array('field_max_marks_value'))
+  	->fields('passing_marks', array('field_passing_marks_value'))
+  	->fields('scored_marks', array('field_scored_marks_value'))
+  	->orderBy('exam_date.field_exam_schedule_value', 'ASC');
+  
+	$result = $query->execute();
+	//pr($result);
+  $marks_subject_wise = array();
+  $exams = array();
+  $total = array();
+	while($record = $result->fetchAssoc()) {
+    $marks_subject_wise[$record['field_subject_target_id']]['subject_title'] = $record['subject_node_title'];
+    $marks_subject_wise[$record['field_subject_target_id']]['marks'][$record['field_exam_target_id']]['exam_title'] = $record['exam_node_title'];
+    $marks_subject_wise[$record['field_subject_target_id']]['marks'][$record['field_exam_target_id']]['max_marks'] = $record['field_max_marks_value'];
+    $marks_subject_wise[$record['field_subject_target_id']]['marks'][$record['field_exam_target_id']]['passing_marks'] = $record['field_passing_marks_value'];
+    $marks_subject_wise[$record['field_subject_target_id']]['marks'][$record['field_exam_target_id']]['scored_marks'] = $record['field_scored_marks_value'];
+    $exams[$record['field_exam_target_id']] = $record['field_exam_target_id'];
+    $exams_details[$record['field_exam_target_id']] = array('exam_title' => $record['exam_node_title']);
+  }
+  $marks_keys = array();
+  foreach($marks_subject_wise as $subject_id => $marks_subject) {
+    $subject_total_marks = array();
+    $subject_total_marks['scored_marks'] = $subject_total_marks['max_marks'] = 0;
+    foreach($marks_subject['marks'] as $exam_id => $marks) {
+      if($exam_id == 'subject_title') continue;
+      $subject_total_marks['scored_marks'] += $marks['scored_marks'];
+      $subject_total_marks['max_marks'] += $marks['max_marks'];
+      
+    }
+    $marks_keys[$subject_id] = array_keys($marks_subject['marks']);
+    $marks_subject_wise[$subject_id]['total'] = $subject_total_marks;
+    $marks_subject_wise[$subject_id]['total']['percentage'] = ($marks_subject_wise[$subject_id]['total']['scored_marks'] / $marks_subject_wise[$subject_id]['total']['max_marks']) * 100;
+    $marks_subject_wise[$subject_id]['total']['percentage'] = number_format($marks_subject_wise[$subject_id]['total']['percentage'], 2, '.', '');
+  }
+  //Add missing exam as Null marks to avoid massed UI
+  
+  
+  
+  foreach ($marks_subject_wise as $subject_id => $marks_subject) {
+    $missing_marks = array_diff($exams, $marks_keys[$subject_id]);
+    foreach ($missing_marks as $missing_mark) {
+      $marks_subject_wise[$subject_id]['marks'][$missing_mark]['exam_title'] = $exams_details[$missing_mark]['exam_title'];
+      $marks_subject_wise[$subject_id]['marks'][$missing_mark]['max_marks'] = 0;
+      $marks_subject_wise[$subject_id]['marks'][$missing_mark]['passing_marks'] = 0;
+      $marks_subject_wise[$subject_id]['marks'][$missing_mark]['scored_marks'] = 0;
+      $marks_subject_wise[$subject_id]['marks'][$missing_mark]['data_status'] = 'NA';
+    }
+  }
+  $return['subject_wise'] = $marks_subject_wise;
+  //pr($return); die;
+  return $return;
+}
+
+
+
+
+function graph_colors() {
+  return array('3081A7', '762877', '7B7830', '317D74', '883F3C', '16460B');
+}

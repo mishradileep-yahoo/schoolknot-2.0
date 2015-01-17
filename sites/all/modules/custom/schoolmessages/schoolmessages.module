@@ -1,0 +1,450 @@
+<?php
+
+/**
+ * @file
+ * Module to restrict the number of nodes a user or role may create.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function schoolmessages_permission() {
+  return array(
+    'access school message' => array(
+      'title' => t('Access School Message'),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_menu()
+ */
+function schoolmessages_menu() {
+  $items = array();
+  $items['schoolmessage/message'] = array(
+  	'title' => 'Compose a message',
+    'description' => 'Compose a message and send to selected recipient.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolmessages_form'),
+    'access callback' => TRUE,
+  	'type' => MENU_CALLBACK,
+  );
+  $items['parentmessage/message'] = array(
+  	'title' => 'Compose a message',
+    'description' => 'Compose a message and send to selected recipient.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('usermessage_form'),
+    'access callback' => TRUE,
+  	'type' => MENU_CALLBACK,
+  );
+  $items['teachermessage/message'] = array(
+  	'title' => 'Compose a message',
+    'description' => 'Compose a message and send to selected recipient.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('teachermessage_form'),
+    'access callback' => TRUE,
+  	'type' => MENU_CALLBACK,
+  );
+  $items['schoolmessage/parents_autocomplete'] = array(
+  	'title' => 'Message to school members',
+    'page callback' => 'schoolmessage_parent_autocomplate_callback',
+  	'type' => MENU_CALLBACK,
+    'access callback' => TRUE,
+  );
+  $items['schoolmessage/teacher_autocomplete'] = array(
+  	'title' => 'Message to teacher',
+    'page callback' => 'schoolmessage_teacher_autocomplate_callback',
+  	'type' => MENU_CALLBACK,
+    'access callback' => TRUE,
+  );
+  return $items;
+}
+
+function teachermessage_form($form, &$form_state) {
+  global $user;
+    
+  $schoolmessage_module_path = drupal_get_path('module', 'schoolmessages');
+  
+  $recipent_type = array('To your School');
+  $form['recipent_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Select'),
+    '#options' => $recipent_type,
+    '#description' => t('Select a recipient type to send message.'),
+    '#prefix' => '<div class="message-recipent-type">',
+    '#suffix' => '</div>',
+  );
+  $form['subject'] = array(
+      '#type' => 'textfield', 
+  	  '#title' => t('Subject'),
+      '#description' => t('Write subject of a message.'),
+      '#required' => TRUE,
+    );
+    $form['message'] = array(
+      '#type' => 'textarea', 
+  	  '#title' => t('Message'),
+      '#description' => t('.'),
+      '#required' => TRUE,
+    );
+    $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  return $form;
+}
+
+function teachermessage_form_submit($form, &$form_state) {
+  global $user;
+  
+  // To School
+  if($form_state['values']['recipent_type'] == 0) {
+    $school_id = _get_school_node_id_for_school_admin();
+    $recipent_user = node_load($school_id);
+    $recipients = user_load_multiple(array($recipent_user->uid));
+    if($recipients) {
+    	_send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+    	drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message was not delivered.'), 'error');
+    }
+  }
+}
+
+function usermessage_form($form, &$form_state) {
+  global $user;
+    
+  $schoolmessage_module_path = drupal_get_path('module', 'schoolmessages');
+  drupal_add_js($schoolmessage_module_path . '/js/schoolmessage.js');
+  drupal_add_css($schoolmessage_module_path . '/css/schoolmessage.css');
+  
+  $recipent_type = array('To a Selected Teacher', 'To your School');
+  $form['recipent_type'] = array(
+    '#type' => 'select', 
+    '#title' => t('Select'),
+    '#options' => $recipent_type,
+    '#description' => t('Select a recipient type to send message.'),
+    '#prefix' => '<div class="message-recipent-type">',
+    '#suffix' => '</div>',
+  );
+  $form['teacher'] = array(
+    '#type' => 'textfield', 
+    '#title' => t('Teacher of'), 
+    '#description' => t('Start typing the name of teacher and select a teacher from options listed below.'),
+    '#size' => 60, 
+    '#maxlength' => 128,
+    '#autocomplete_path' => 'schoolmessage/teacher_autocomplete',
+    '#prefix' => '<div class="schoolmessage-message-parent">',
+    '#suffix' => '</div>', 
+  );
+  $form['subject'] = array(
+      '#type' => 'textfield', 
+  	  '#title' => t('Subject'),
+      '#description' => t('Write subject of a message.'),
+      '#required' => TRUE,
+    );
+    $form['message'] = array(
+      '#type' => 'textarea', 
+  	  '#title' => t('Message'),
+      '#description' => t('.'),
+      '#required' => TRUE,
+    );
+    $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  return $form;
+}
+
+function usermessage_form_validate($form, &$form_state) {
+  if($form_state['values']['recipent_type'] == 0 && $form_state['values']['teacher'] == '') {
+    form_set_error('parent', 'Please enter teacher name from "Teacher Of".');
+  }
+}
+
+function usermessage_form_submit($form, &$form_state) {
+  global $user;
+  
+  // To a selected Teacher
+  if($form_state['values']['recipent_type'] == 0) {
+    $student_name_sr_number = $form_state['values']['parent'];
+    $result = preg_match('^\[(.*?)\]^', $student_name_sr_number, $matches);
+    $recipent_user_id = $matches[$result];
+    
+    $recipent_user = user_load_by_name($recipent_user_id);
+    $recipients = user_load_multiple(array($recipent_user->uid));
+    if($recipients){
+   	  _send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+      drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message not delivered successfully. Selected parent is invalid'), 'error');
+    }
+  }
+ 
+  // To School
+  if($form_state['values']['recipent_type'] == 1) {
+    $school_id = _get_school_node_id_for_school_admin();
+    $recipent_user = node_load($school_id);
+    $recipients = user_load_multiple(array($recipent_user->uid));
+    if($recipients) {
+    	_send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+    	drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message was not delivered.'), 'error');
+    }
+  }
+}
+
+
+
+
+function schoolmessages_form($form, &$form_state) {
+  global $user;
+  
+  $schoolmessage_module_path = drupal_get_path('module', 'schoolmessages');
+  drupal_add_js($schoolmessage_module_path . '/js/schoolmessage.js');
+  drupal_add_css($schoolmessage_module_path . '/css/schoolmessage.css');
+
+  
+  $exams = array();
+    $result = db_select('node')
+      ->fields('node', array('nid', 'title'))
+      ->condition('type', 'classes', '=')
+      ->condition('uid', $user->uid, '=')
+      //->range(0, 10)
+      ->execute();
+    foreach ($result as $node) {
+      $exams[$node->nid] = check_plain($node->title);
+    }
+    $recipent_type = array('To a Selected Parent', 'To a Class', 'To All Parents', 'To All Teachers');
+    $form['recipent_type'] = array(
+      '#type' => 'select', 
+  	  '#title' => t('Class'), 
+      '#options' => $recipent_type,
+      '#description' => t('Select a recipent type to send message.'),
+      '#prefix' => '<div class="message-recipent-type">',
+			'#suffix' => '</div>',
+    );
+    
+    $form['parent'] = array(
+      '#type' => 'textfield', 
+  	  '#title' => t('Parent of'), 
+      '#description' => t('Start typing the name of student and select a student from options listed below.'),
+      '#size' => 60, 
+      '#maxlength' => 128,
+      '#autocomplete_path' => 'schoolmessage/parents_autocomplete',
+      '#prefix' => '<div class="schoolmessage-message-parent">',
+			'#suffix' => '</div>', 
+    );
+    
+    $form['class'] = array(
+      '#type' => 'select', 
+  	  '#title' => t('Class'), 
+      '#options' => $exams,
+      '#description' => t('Select a class to write message.'),
+    	'#prefix' => '<div class="schoolmessage-message-class">',
+			'#suffix' => '</div>',
+    );
+    $form['subject'] = array(
+      '#type' => 'textfield', 
+  	  '#title' => t('Subject'),
+      '#description' => t('Write subject of a message.'),
+      '#required' => TRUE,
+    );
+    $form['message'] = array(
+      '#type' => 'textarea', 
+  	  '#title' => t('Message'),
+      '#description' => t('.'),
+      '#required' => TRUE,
+    );
+    $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+    return $form;
+}
+
+function schoolmessages_form_validate($form, &$form_state) {
+  if($form_state['values']['recipent_type'] == 0 && $form_state['values']['parent'] == '') {
+    form_set_error('parent', 'Please enter student parent name from "Parent Of".');
+  }
+}
+
+function schoolmessages_form_submit($form, &$form_state) {
+  global $user;
+  
+  // To a selected Parent
+  if($form_state['values']['recipent_type'] == 0) {
+    $student_name_sr_number = $form_state['values']['parent'];
+    $result = preg_match('^\[(.*?)\]^', $student_name_sr_number, $matches);
+    $recipent_user_id = $matches[$result];
+    
+    $recipent_user = user_load_by_name($recipent_user_id);
+    $recipients = user_load_multiple(array($recipent_user->uid));
+    if($recipients){
+   	  _send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+      drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message not delivered successfully. Selected parent is invalid'), 'error');
+    }
+  }
+  
+  // To a selected Class
+  if($form_state['values']['recipent_type'] == 1) {
+    $class = $form_state['values']['class'];
+    $parents_for_class = _get_all_parents_for_class($class);
+    $parent_ids = array();
+    foreach($parents_for_class as $parent_id => $parent) {
+      array_push($parent_ids, $parent_id);
+    }
+    $recipients = user_load_multiple($parent_ids);
+    if($recipients){
+    	_send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+    	drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message was not delivered.'), 'error');
+    }
+  }
+  
+  // To All Parents
+  if($form_state['values']['recipent_type'] == 2) {
+    $school_id = _get_school_node_id_for_school_admin();
+    $parents_for_school = _get_all_parents_for_school($school_id['nid']);
+    
+    $parent_ids = array();
+    foreach($parents_for_school as $parent_id => $parent) {
+      array_push($parent_ids, $parent_id);
+    }
+    $recipients = user_load_multiple($parent_ids);
+    if($recipients) {
+    	_send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+    	drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message was not delivered.'), 'error');
+    }
+  }
+  
+  // To All Teachers
+  if($form_state['values']['recipent_type'] == 3) {
+    $school_id = _get_school_node_id_for_school_admin();
+    $teachers_for_school = _get_all_teachers_for_school($school_id['nid']);
+    
+    $teacher_ids = array();
+    foreach($teachers_for_school as $teacher_id => $teacher) {
+      array_push($teacher_ids, $teacher_id);
+    }
+    $recipients = user_load_multiple($teacher_ids);
+    if($recipients) {
+    	_send_private_message($recipients, $form_state['values']['subject'], $form_state['values']['message'], $form_state['values']['recipent_type']);
+    	drupal_set_message(t('Your message was delivered successfully.'), 'status');
+    }
+    else {
+    	drupal_set_message(t('Your message was not delivered.'), 'error');
+    }
+  }
+}
+
+function _send_private_message($recipients, $subject, $message, $recipient_type) {
+  $message_object = privatemsg_new_thread($recipients, check_plain($subject), $message);
+  db_update('pm_message') // Table name no longer needs {}
+  ->fields(array(
+    'recipient_type' => $recipient_type
+  ))
+  ->condition('mid', $message_object['message']->mid, '=')
+  ->execute();
+}
+
+function schoolmessage_parent_autocomplate_callback($string = '') {
+  $matches = array();
+  if ($string) {
+    global $user;
+    $user_school_id = _get_school_node_id_for_school_admin();
+
+    $parents_for_school = _get_all_parents_for_school($user_school_id['nid']);
+    $parent_ids = array();
+    foreach($parents_for_school as $parent_id => $parent) {
+      array_push($parent_ids, $parent_id);
+    }
+    $query = db_select('users', 'u');
+    $query->leftJoin('field_data_field_student_first_name', 'sfname', 'u.uid = sfname.entity_id');
+    $query->leftJoin('field_data_field_student_last_name', 'slname', 'u.uid = slname.entity_id');
+    $query->leftJoin('field_data_field_student_middle_name', 'smname', 'u.uid = smname.entity_id');
+    $query->leftJoin('field_data_field_student_registration_id', 'srnumber', 'u.uid = srnumber.entity_id');
+
+    
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->fields('sfname', array('field_student_first_name_value'))
+      ->fields('slname', array('field_student_last_name_value'))
+      ->fields('smname', array('field_student_middle_name_value'))
+      ->fields('srnumber', array('field_student_registration_id_value'))
+      
+      ->condition(db_or()
+        ->condition('sfname.field_student_first_name_value', db_like($string) . '%', 'LIKE')
+        ->condition('slname.field_student_last_name_value', db_like($string) . '%', 'LIKE')
+        ->condition('smname.field_student_middle_name_value', db_like($string) . '%', 'LIKE')
+      )
+      
+      ->condition('u.uid', $parent_ids, 'IN')
+      ->condition('u.status', '1', '=')
+      
+      ->range(0, 10);
+      
+      $result = $query->execute();
+    foreach ($result as $student) {
+      $matches[$student->field_student_first_name_value . ' ' . $student->field_student_middle_name_value . ' ' . $student->field_student_last_name_value . " [$student->name]"] = check_plain($student->field_student_first_name_value . ' ' . $student->field_student_middle_name_value . ' ' . $student->field_student_last_name_value);
+    }
+  }
+  
+  drupal_json_output($matches);
+}
+
+function schoolmessage_teacher_autocomplate_callback($string = '') {
+  $matches = array();
+  if ($string) {
+    global $user;
+    $user_school_id = _get_school_node_id_for_school_admin();
+
+    $teachers_for_school = _get_all_teachers_for_school($user_school_id['nid']);
+    $teacher_ids = array();
+    foreach($teachers_for_school as $teacher_id => $teacher) {
+      array_push($teacher_ids, $teacher_id);
+    }
+    $query = db_select('users', 'u');
+    $query->leftJoin('field_data_field_student_first_name', 'sfname', 'u.uid = sfname.entity_id');
+    $query->leftJoin('field_data_field_student_last_name', 'slname', 'u.uid = slname.entity_id');
+    $query->leftJoin('field_data_field_student_middle_name', 'smname', 'u.uid = smname.entity_id');
+    $query->leftJoin('field_data_field_student_registration_id', 'srnumber', 'u.uid = srnumber.entity_id');
+
+    
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->fields('sfname', array('field_student_first_name_value'))
+      ->fields('slname', array('field_student_last_name_value'))
+      ->fields('smname', array('field_student_middle_name_value'))
+      ->fields('srnumber', array('field_student_registration_id_value'))
+      
+      ->condition(db_or()
+        ->condition('sfname.field_student_first_name_value', db_like($string) . '%', 'LIKE')
+        ->condition('slname.field_student_last_name_value', db_like($string) . '%', 'LIKE')
+        ->condition('smname.field_student_middle_name_value', db_like($string) . '%', 'LIKE')
+      )
+      
+      ->condition('u.uid', $teacher_ids, 'IN')
+      ->condition('u.status', '1', '=')
+      
+      ->range(0, 10);
+      
+      $result = $query->execute();
+    foreach ($result as $student) {
+      $matches[$student->field_student_first_name_value . ' ' . $student->field_student_middle_name_value . ' ' . $student->field_student_last_name_value . " [$student->name]"] = check_plain($student->field_student_first_name_value . ' ' . $student->field_student_middle_name_value . ' ' . $student->field_student_last_name_value);
+    }
+  }
+  
+  drupal_json_output($matches);
+}

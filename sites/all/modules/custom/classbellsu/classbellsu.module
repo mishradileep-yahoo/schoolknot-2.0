@@ -1,0 +1,598 @@
+<?php
+
+/**
+ * @file
+ * Module to restrict the number of nodes a user or role may create.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function classbellsu_permission () {
+  return array(
+      'school admin' => array(
+          'title' => t('Administer School'),
+          'description' => t('Allow school administrators to update status.')
+      )
+  );
+}
+
+/*
+ * Implement HOOK_menu
+ */
+
+function classbellsu_menu() {
+  $items = array();
+  $items['classbellsu/edit-post/%'] = array(
+  	'title' => 'Edit Post',
+    'description' => 'Edit a status update post',
+    'page callback' => 'classbellsu_edit_post',
+  	'page arguments' => array(2),
+    'access arguments' => array('school admin'),
+  	'type' => MENU_NORMAL_ITEM,
+  	'file' => 'classbellsu.admin.inc',
+  );
+  $items['classbellsu/delete-post/%'] = array(
+  	'title' => 'Delete Status Post',
+    'description' => 'Delete a status update post',
+    'page callback' => 'drupal_get_form',
+  	'page arguments' => array('classbellsu_delete_post', 2),
+    'access arguments' => array('school admin'),
+  	'type' => MENU_NORMAL_ITEM,
+  	'file' => 'classbellsu.admin.inc',
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_block_info().
+ * This hook declares what blocks are provided by the module.
+ */
+function classbellsu_block_info () {
+  $blocks['classbellsu_form'] = array(
+      'info' => t('Status update form'),
+  );
+  $blocks['classbellsu_image_form'] = array(
+      'info' => t('Status image update form'),
+  );
+  $blocks['classbellsu_youtube_form'] = array(
+      'info' => t('Status youtube update form'),
+  );
+  $blocks['classbellsu_comment_form'] = array(
+  		'info' => t('Status Comment Form'),
+  );
+  $blocks['classbellsu_complete_status_form'] = array(
+  		'info' => t('Complete Status Update Form'),
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ * This hook generates the contents of the blocks themselves.
+ */
+function classbellsu_block_view ($delta = '', $post_id = '') {
+  $block = array();
+  switch ($delta) {
+    case 'classbellsu_form':
+      $block['subject'] = t('Status Update');
+      $block['content'] = drupal_get_form('classbellsu_status_update_form');
+      break;
+    case 'classbellsu_image_form':
+      $block['subject'] = t('Image Status Update');
+      $block['content'] = drupal_get_form('classbellsu_image_update_form');
+      break;
+    case 'classbellsu_youtube_form':
+      $block['subject'] = t('Video Status Update');
+      $block['content'] = drupal_get_form('classbellsu_youtube_update_form');
+      break;
+    case 'classbellsu_comment_form':
+      	$block['subject'] = t('Status Comment Form');
+      	$block['content'] = drupal_get_form('classbellsu_status_comment_form', $post_id);
+      	break;
+    case 'classbellsu_complete_status_form':
+      	//$block['subject'] = t('Status Comment Form');
+      	$block['content'] = classbellsu_complete_status_form();
+      	break;
+
+  }
+  return $block;
+}
+
+
+function classbellsu_status_update_form ($form, &$form_state, $nid = '') {
+  $text = '';
+  $provact_setting_default = '';
+  if(is_object($nid) && isset($nid->nid)) {
+  	$text = $nid->body[$nid->language][0]['value'];
+  	$provact_setting_default = $nid->group_content_access[$nid->language][0]['value'];
+  	$form['node_id'] = array(
+  		'#value' => $nid->nid,
+      '#type' => 'hidden',
+  );
+  }
+  $form['status_text'] = array(
+	'#type' => 'textarea',
+	'#attributes' => array('placeholder' => array('Share with the world')),
+	'#prefix' => '<div id="status_update_message" class="form-bg">',
+	'#suffix' => '</div>',
+  	'#default_value' => $text,
+  	'#resizable' => FALSE, 
+  	'#description' => 'Allowed to accept only 1000 characters per post.'
+  );
+  $school_id = _get_school_node_id_for_school_admin_user();
+  $form['school_id'] = array(
+  		'#value' => $school_id['nid'],
+      '#type' => 'hidden',
+  );
+  
+  $provact_setting_options = array('1' => 'Public - accessible to all site users', '2' => 'Private - accessible only to School Members', '3' => 'Protected - accessible only to Me');
+  $form['privacy_setting'] = array(
+  	  '#type' => 'select',
+      '#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+      '#suffix' => '</div>',
+      '#options' => $provact_setting_options,
+  	  '#default_value' => $provact_setting_default,
+  );
+  
+  $form['submit'] = array(
+	'#type' => 'submit',
+	'#value' => t('Post'),
+	'#attributes' => array('class' => array('btn')),
+	'#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+	'#suffix' => '</div>',
+  		/*
+      '#ajax' => array(
+  				'callback' => 'classbellsu_status_update_form_ajax_submit',
+  				'wrapper' => 'status_update_message',
+  				'method' => 'replace',
+  				'effect' => 'fade',
+  		),
+  		*/
+  );
+  return $form;
+}
+
+function classbellsu_status_update_form_submit($form, &$form_state) {
+  
+  $status_text = $form_state['values']['status_text'];
+  if($status_text == '') {
+    form_set_error("status_text", "Please put some text.");
+  }
+  else {
+    
+    // School data
+    $school = node_load($form_state['values']['school_id']);
+    $body_text = $status_text;
+    
+    $node = new stdClass();
+    $node->type = 'classbell_status_update';
+    node_object_prepare($node);
+    
+    if(isset($form_state['values']['node_id']) && $form_state['values']['node_id'] != '') {
+    	$node->nid = $form_state['values']['node_id'];
+    }
+    
+    $node->title    = 'Status Update for - ' . $school->title . ' at ' . date('c');
+    $node->language = LANGUAGE_NONE;
+    
+    $node->body[$node->language][0]['value']   = $body_text;
+    $node->body[$node->language][0]['summary'] = text_summary($body_text);
+    $node->body[$node->language][0]['format']  = 'filtered_html';
+    
+    $node->og_group_ref[$node->language][0]['target_id'] = $form_state['values']['school_id'];
+    //$node->field_school_id[$node->language][0]['target_id'] = $form_state['values']['school_id'];
+    $node->field_school_id[$node->language][] = array( 'target_id' => $form_state['values']['school_id'], 'target_type' => 'node');
+    
+    
+    $node->field_post_type[$node->language][0]['value'] = 'text';
+    if($form_state['values']['privacy_setting'] < 3) {
+    	$node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+    }
+    else {
+    	$node->group_content_access[$node->language][0]['value'] = 2;
+    	$node->status = 0;
+    }
+
+    node_save($node);
+    
+    /*
+    if($form_state['values']['privacy_setting'] == 2) {
+		$node->status = 0;
+		pr($node);
+		node_save($node);
+		pr($node); die();
+    }
+    */
+    drupal_set_message(t('Status updated successfully.'), 'status');
+  }
+}
+
+
+function classbellsu_image_update_form ($form, &$form_state, $nid = '') {
+  $form['status_image'] = array(
+    '#type' => 'file',
+    '#name' => 'files[]',
+    '#title' => t('Browse to the image folder on your computer and select multiple images to bulk upload'),
+    '#description' => t('You are allow to upload jpg, jpeg, png and gif, 10MB Max Size'),
+    '#attributes' => array('multiple' => 'multiple', 'class' => array('nicefileinput nice')),
+    '#prefix' => '<div id="status_update_message" class="form-bg">',
+    );
+  $form['status_text'] = array(
+    '#title' => t('Please name your image/album below.'),
+    '#type' => 'textfield',
+    //'#description' => t('Status update for School'),
+    '#attributes' => array('placeholder' => array('Title for image/album')),
+    '#suffix' => '</div>',
+  );
+  $school_id = _get_school_node_id_for_school_admin_user();
+  $form['school_id'] = array(
+    '#value' => $school_id['nid'],
+    '#type' => 'hidden',
+  );
+  $provact_setting_options = array('1' => 'Public - accessible to all site users', '2' => 'Private - accessible only to School Members', '3' => 'Protected - accessible only to Me');
+      $form['privacy_setting'] = array(
+  		'#type' => 'select',
+      '#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+      '#suffix' => '</div>',
+      '#options' => $provact_setting_options,
+  );
+  
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Post'),
+    '#attributes' => array('class' => array('btn')),
+  	'#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+	'#suffix' => '</div>',
+    /*
+    '#ajax' => array(
+      'callback' => 'classbellsu_image_update_form_ajax_submit',
+      'wrapper' => 'status_update_message',
+      'method' => 'replace',
+      'effect' => 'fade',
+    ),*/
+  );
+  return $form;
+}
+
+function classbellsu_image_update_form_validate($form, &$form_state) {
+  //Save multiple files
+  $num_files = count($_FILES['files']['name']);
+  for ($i = 0; $i < $num_files; $i++) {
+  $file = file_save_upload($i, array(
+    'file_validate_is_image' => array(),
+    'file_validate_extensions' => array('png gif jpg jpeg'),
+    ));
+    if ($file) {
+      $file_directory_uri = 'public://post_images/'.$form_state['values']['school_id'];
+      if(!file_prepare_directory($file_directory_uri)){
+        drupal_mkdir($file_directory_uri, '0777', TRUE);  
+      }
+      if ($file = file_move($file, $file_directory_uri)) {
+        $form_state['values']['file'][$i] = $file;
+      }
+      else {
+        form_set_error('file', t('Failed to write the uploaded file the site\'s file folder.'));
+      }
+    }
+    else {
+      form_set_error('file', t('No file was uploaded.'));
+    }
+  }
+}
+
+function classbellsu_image_update_form_submit($form, &$form_state) {
+  $uploaded_files = array();
+  if (is_array($form_state['values']['file'])) {
+    foreach ($form_state['values']['file'] as $file) {
+      $uploaded_files[] = (array)file_load($file->fid);
+    }
+  }
+
+  $post_type = (count($uploaded_files) > 1) ? 'album' : 'image';
+
+
+  // School data
+  $body_text = $form_state['values']['status_text'];
+  $school = node_load($form_state['values']['school_id']);
+  
+  $node = new stdClass();
+  $node->type = 'classbell_status_update';
+  node_object_prepare($node);
+  
+  $node->title    = 'Status Image Update for - ' . $school->title . ' at ' . date('c');
+  $node->language = LANGUAGE_NONE;
+  
+  $node->body[$node->language][0]['value']   = $body_text;
+  $node->body[$node->language][0]['summary'] = text_summary($body_text);
+  $node->body[$node->language][0]['format']  = 'filtered_html';
+  
+  $node->field_status_image[$node->language] = $uploaded_files;
+  $node->og_group_ref[$node->language][0]['target_id'] = $form_state['values']['school_id'];
+  $node->field_school_id[$node->language][] = array( 'target_id' => $form_state['values']['school_id'], 'target_type' => 'node');
+  
+  $node->field_post_type[$node->language][0]['value'] = $post_type;
+  $node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+	if($form_state['values']['privacy_setting'] < 3) {
+    	$node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+    }
+    else {
+    	$node->group_content_access[$node->language][0]['value'] = 2;
+    	$node->status = 0;
+    }
+  
+  node_save($node);
+}
+
+function classbellsu_youtube_update_form ($form, &$form_state) {
+  $form['youtube_id'] = array(
+    '#title' => t('Status'),
+  	'#description' => t('Copy the code from YouTube URL that follows after \'=\' ex: if the you tube URL is "http://www.youtube.com/user/CyberVillageSolution?v=nvVDqTkbWnk" copy only the part after \'=\' and paste it in the box above which in this example is "nvVDqTkbWnk"'),
+    '#type' => 'textfield',
+    '#size' => 15, 
+		'#maxlength' => 15, 
+    '#prefix' => '<div class="form-bg">',
+    '#suffix' => '</div>',
+    '#attributes' => array('placeholder' => array('Youtube video ID')),
+  );
+  $school_id = _get_school_node_id_for_school_admin_user();
+  
+  $form['school_id'] = array(
+    '#value' => $school_id['nid'],
+    '#type' => 'hidden',
+  );
+  $provact_setting_options = array('1' => 'Public - accessible to all site users', '2' => 'Private - accessible only to School Members', '3' => 'Protected - accessible only to Me');
+    $form['privacy_setting'] = array(
+  		'#type' => 'select',
+      '#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+      '#suffix' => '</div>',
+      '#options' => $provact_setting_options,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Post'),
+    '#attributes' => array('class' => array('btn')),
+  	'#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+	'#suffix' => '</div>',
+  );
+  return $form;
+}
+
+function classbellsu_youtube_update_form_submit ($form, &$form_state) {
+  $youtube_id = $form_state['values']['youtube_id'];
+  if($youtube_id == '') {
+    form_set_error("status_text", "Please enter youtube video ID.");
+  }
+  else {
+    
+    // School data
+    $school = node_load($form_state['values']['school_id']);
+    
+    
+    $node = new stdClass();
+    $node->type = 'classbell_status_update';
+    node_object_prepare($node);
+    
+    $node->title    = 'Status Youtube Video for - ' . $school->title . ' at ' . date('c');
+    $node->language = LANGUAGE_NONE;
+    
+    $node->body[$node->language][0]['value']   = '';
+    $node->body[$node->language][0]['summary'] = text_summary('');
+    $node->body[$node->language][0]['format']  = 'filtered_html';
+    
+    $node->field_youtube_video_url[$node->language][0]['value'] = $youtube_id;
+    
+    $node->og_group_ref[$node->language][0]['target_id'] = $form_state['values']['school_id'];
+    $node->field_school_id[$node->language][] = array( 'target_id' => $form_state['values']['school_id'], 'target_type' => 'node');
+    $node->field_post_type[$node->language][0]['value'] = 'youtube_video';
+    $node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+  	if($form_state['values']['privacy_setting'] < 3) {
+    	$node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+    }
+    else {
+    	$node->group_content_access[$node->language][0]['value'] = 2;
+    	$node->status = 0;
+    }
+    node_save($node);
+    
+    drupal_set_message(t('Status video updated successfully.'), 'status');
+  }
+}
+
+function classbellsu_complete_status_form () {
+  return theme('classbell_status_update_form_all', array('data' => ''));
+}
+
+function classbellsu_theme() {
+  $module_path = drupal_get_path('module', 'classbellsu');
+  $base = array(
+    'path' => $module_path . '/templates',   
+  );
+  return array(
+    'classbell_status_update_form_all' => $base + array(
+      'template' => 'classbell-status-update-form-all',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),    
+  ); 
+}
+/* Comment form */
+
+function classbellsu_status_comment_form ($form, &$form_state, $post_id) {
+  global $user;
+  
+  
+  if($user->picture != 0) {
+    $user_avatar = file_load($user->picture);
+    
+    $user_avatar_src = image_style_url('40x40_resize',$user_avatar->uri);
+  }
+  else {
+    $user_avatar_src = base_path() . path_to_theme() . '/images/student-avatar-32x32.png';
+  }
+  
+  /*
+	$form['user_avatar'] = array(
+		'#markup' => '<img src="' . $user_avatar_src . '">',
+	  '#prefix' => '<div class="thumb">',
+		'#suffix' => '</div>',
+	);
+  */
+	$form['comment_text'] = array(
+			//'#title' => t('Comment'),
+			'#type' => 'textarea',
+	    '#size' => 20,
+	    '#maxlength' => 500,
+			'#prefix' => '<div id="comment_message">',
+			'#suffix' => '</div>',
+	    '#attributes' => array('placeholder' => array('comments...')),
+	);
+	$form['post_id'] = array(
+			'#value' => $post_id,
+			'#type' => 'hidden',
+	);
+
+	$form['submit'] = array(
+			'#type' => 'submit',
+			'#value' => t('Post'),
+	    '#attributes' => array('class' => array('btn')),
+			/*
+	    	'#ajax' => array(
+					'callback' => 'classbellsu_status_comment_form_ajax_submit',
+					'wrapper' => 'status_update_message',
+					'method' => 'replace',
+					'effect' => 'fade',
+			),
+			*/
+	);
+	return $form;
+}
+
+function classbellsu_status_comment_form_submit($form, &$form_state) {
+	global $user;
+	$comment_text = $form_state['values']['comment_text'];
+	if($comment_text == '') {
+		form_set_error("status_text", "Please put some text in comment.");
+	}
+	else {
+	  $comment = (object) array(
+	  		'nid' => $form_state['input']['post_id'],
+	  		'cid' => 0,
+	  		'pid' => 0,
+	  		'uid' => $user->uid,
+	  		'mail' => '',
+	  		'is_anonymous' => 0,
+	  		'homepage' => '',
+	  		'status' => COMMENT_PUBLISHED,
+	  		'subject' => $form_state['values']['post_id'] . ' Comment',
+	  		'language' => LANGUAGE_NONE,
+	  		'comment_body' => array(
+	  				LANGUAGE_NONE => array(
+	  						0 => array (
+	  								'value' => $comment_text,
+	  								'format' => 'filtered_html'
+	  						)
+	  				)
+	  		),
+	  );
+	  comment_submit($comment);
+	  comment_save($comment);
+	}
+	return $form;
+}
+ 
+
+function classbellsu_form_classbell_status_update_node_form_alter(&$form, &$form_state, $form_id) {
+	global $user;
+	if (in_array("administrator", $user->roles)) {
+		return;
+	}
+	$form['group_content_access']['und']['#title'] = 'Post Privacy Setting';
+	unset($form['group_content_access']['und']['#options'][0]);
+	$form['group_content_access']['und']['#options'][1] = 'Public - accessible to all site users';
+	$form['group_content_access']['und']['#options'][2] = 'Private - accessible only to School Members';
+	$form['group_content_access']['und']['#options'][0] = 'Protected - accessible only to Me';
+	
+	//pr($form['group_content_access']['und']['#options']); die('asdas');
+  	$form['title']['#access'] = FALSE;
+  	$form['field_post_type']['#access'] = FALSE;
+  	$post_type = $form['field_post_type'][$form['field_post_type']['#language']]['#default_value'];
+  	$form['field_youtube_video_url']['#access'] = FALSE;
+  	$form['field_status_image']['#access'] = FALSE;
+  	switch($post_type) {
+  		case 'youtube_video':
+  			$form['field_youtube_video_url']['#access'] = TRUE;
+  			break;
+  		case 'image':
+  		case 'album':
+  			$form['field_status_image']['#access'] = TRUE;
+  			break;
+  				
+  	}
+  	//$form['actions']['submit']['#submit'][0] = 'classbellsu_form_classbell_status_update_form_validate';
+}
+
+function classbellsu_form_classbell_status_update_form_validate($form, &$form_state) {
+	if($form_state['values']['group_content_access']['und'][0]['value'] == 0 ) {
+		$form_state['values']['status'] = 0;
+	}
+	else {
+		$form_state['values']['status'] = 1;
+	}
+}
+
+
+function classbellsu_node_presave($node) {
+	if($node->type == 'classbell_status_update') {
+		if(isset($node->group_content_access) && $node->group_content_access['und'][0]['value'] == 0 && isset($node->nid)) {
+			//$node->status = 0;
+		}
+		else {
+			//$node->status = 1;
+		}
+	}
+}
+function classbellsu_node_load($nodes, $types) {
+  global $user;
+  $args = arg();
+  if($user->uid != 1) {
+    if($args[0] == 'node' && $args[2] == 'edit' && $nodes[$args[1]]->type == 'school' && $nodes[$args[1]]->uid != $user->uid) {
+      drupal_set_message('You are not allowed to edit this school.', 'warning');
+      drupal_goto($args[0] . '/' . $args[1]);
+    }
+  }
+}
+function classbellsu_node_view($node, $view_mode) {
+	if ($node->type=="classbell_status_update") {
+  	$node_body = $node->body['und'][0]['value'];
+  	$title = truncate_utf8($node_body,40,FALSE,TRUE);
+  	if($title){
+    	drupal_set_title($title);
+  	}
+  	else drupal_set_title("School Post");
+    return $node;
+  }
+}
+
+function _check_able_to_share($user, $node_author, $node_school) {
+  if($user->uid == $node_author) return TRUE;
+  if(in_array('Parent', $user->roles)) {
+    $parent_school = _get_school_node_id_for_school_admin_user($user->uid);
+    if($node_school == $parent_school['nid']) {
+      return TRUE;
+    }
+  }
+  if(in_array('Teacher', $user->roles)) {
+    $parent_school = _get_school_node_id_for_school_admin_user($user->uid);
+    if($node_school == $parent_school['nid']) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+function pr($arr) {
+  print '<pre>';
+  print_r($arr);
+  print '</pre>';
+}
+

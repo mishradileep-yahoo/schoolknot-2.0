@@ -1,0 +1,499 @@
+<?php
+
+/**
+ * @file
+ * Implements the integration of Webforms with the PayPal API.
+ */
+ 
+/**
+ * Implement hook_menu()
+ */
+ function jstor_paypal_menu() {
+  $items = array(
+    'admin/config/system/jstor_paypal' => array(
+      'title'	            => "Paypal API configuration",
+      'description'				=> "General settings for the Paypal API module",
+      'page callback'     => 'drupal_get_form',
+      'page arguments'    => array('jstor_paypal_system_settings'),
+      'access arguments'	=> array('administer paypal api'),
+      'file'						  => 'jstor_paypal.admin.inc'
+    ),		
+    'paypal/ipn' => array(
+      'title'	            => "IPN listener for Paypal",
+      'page callback'     => 'jstor_paypal_ipn',
+      'access arguments'	=> array('access content'),
+      'type'              => MENU_CALLBACK
+    ),
+    'paypal-success' => array(
+      'title'	            => "Thank You",
+      'page callback'     => 'jstor_paypal_success_page',
+      'access arguments'	=> array('access content'),
+      'type'              => MENU_CALLBACK
+    )
+  );
+  return $items;
+}
+
+/**
+ *
+ * Success page handler.
+ *
+ * @return Success Page Output
+ * 
+ */
+function jstor_paypal_success_page() {
+  $settings = variable_get('jstor_paypal_settings', array());
+	$output = "<div class='paypal-success'>";
+	$default_message = "Your transaction has been successfully registered with Paypal.  You will be notified when the transaction has been verified.";
+	$output .=  (isset($settings['success_page_message']))? t($settings['success_page_message']) : t($default_message); 
+	$output .= "</div>";
+	
+	return $output;
+}
+
+
+ /**
+ * Implement hook_permission().
+ */
+function jstor_paypal_permission() {
+  return array(
+    'administer paypal api' => array(
+      'title' => t('Administer Paypal API'),
+      'description' => t('Administer Paypal API system settings.'),
+    )
+  );
+}
+ 
+/**
+* Implements hook_webform_submission_insert().
+*/
+function jstor_paypal_webform_submission_insert($node, $submission) {
+	global $base_url;
+  $settings = variable_get('jstor_paypal_settings', array());
+	if ($node->nid == $settings['paypal_form_node']) {
+
+    // Get mapping of form submission data using private function (see below).
+    // Using this, we can use webform field names (like 'first_name') instead
+    // of vague mappings like $submission->data['3']['value'][0].
+    $mapping = _jstor_paypal_webform_component_mapping($node);
+
+    /**
+     * Set up form to post to PayPal
+     * 
+     * Preliminary notes:
+     *  - PayPal expects a state code in 2-digit caps (no full names)
+     *  - Need to break phone number into three strings... [area] [3-digits] [4-digits]
+     *  - https://www.paypal.com/cgi-bin/webscr?cmd=_pdn_xclick_prepopulate_outside
+     */
+    $paypal = array();
+    $paypal['cmd'] = '_xclick'; // Varies depending on type of payment sent via PayPal
+    $paypal['bn'] = 'Subscription_Subscribe_WPS_US'; // See PayPal docs on proper formatting - not required, though
+    $paypal['page_style'] = 'primary'; // Set this in PayPal prefs, then change here (default = paypal)
+    $paypal['item_name'] = 'PayPal Payment made through the JSTOR';
+    $paypal['no_shipping'] = '1'; // Don't prompt user for shipping address
+    $paypal['no_note'] = '1'; // Don't prompt user for extra information (note)
+    $paypal['tax'] = '0'; // No tax for this payment
+    $paypal['rm'] = '1'; // Return method - 1 = browser redirected to return URL by GET method w/o variables
+    $paypal['amount'] = $submission->data[$mapping['amount']]['value'][0];
+    $paypal['item_number'] = $submission->data[$mapping['item_number']]['value'][0];
+    $paypal['first_name'] = $submission->data[$mapping['first_name']]['value'][0];
+    $paypal['last_name'] = $submission->data[$mapping['last_name']]['value'][0];
+    $paypal['email'] = $submission->data[$mapping['email']]['value'][0];
+    $phone = explode("-", $submission->data[$mapping['phone']]['value'][0]);
+    $paypal['night_phone_a'] = $phone[0];
+    $paypal['night_phone_b'] = $phone[1];
+    $paypal['night_phone_c'] = $phone[2];
+    $paypal['address1'] = $submission->data[$mapping['address1']]['value'][0];
+    $paypal['address2'] = $submission->data[$mapping['address2']]['value'][0];
+    $paypal['city'] = $submission->data[$mapping['city']]['value'][0];
+    $paypal['state'] = $submission->data[$mapping['state']]['value'][0];
+    $paypal['zip'] = $submission->data[$mapping['zip']]['value'][0];
+    $paypal['country'] = 'US';
+    $paypal['custom'] = $submission->sid;
+		
+		// PayPal settings
+    $paypal['business'] = $settings['email'];  // PayPal account email
+    $success_url = isset($settings['success_url']) ? $settings['success_url'] : '/paypal/success';
+	  $paypal['return'] = $base_url . $success_url;
+		$paypal['notify_url'] = $base_url . '/paypal/ipn';
+
+    // Build the URL/query for PayPal payment form.
+    $query = http_build_query($paypal, '', '&');
+    
+		//$url = 'https://www.paypal.com/cgi-bin/webscr?' . $query;
+		$url = _jstor_paypal_url() . '?' . $query;
+
+    // Redirect user to PayPal...
+    drupal_goto($url);
+  }
+}
+
+/**
+* Function to convert webform submissions into a nicely-mapped array.
+*
+* @see http://www.drupalcoder.com/story/678-additional-processing-in-drupals-webform-3-module
+*/
+function _jstor_paypal_webform_component_mapping($node) {
+  $mapping = array();
+  $components = $node->webform['components'];
+  foreach ($components as $i => $component) {
+    $key = $component['form_key'];
+    $mapping[$key] = $i;
+  }
+  return $mapping;
+}
+
+/**
+ * Get the correct URL for contacting Paypal.
+ *
+ * @param $add_path = TRUE
+ * Add the cgi-bin path to the URL
+ *
+ * @return
+ * A URL to the live site, unless we're set to run through the sandbox.
+ */
+function _jstor_paypal_url($add_path = TRUE) {
+  $settings = variable_get('jstor_paypal_settings', array());
+
+  $url = "https://www.";
+  if (isset($settings['sandbox']) && $settings['sandbox']) {
+    $url .= "sandbox.";
+  }
+  $url .= "paypal.com";
+
+  if ($add_path) {
+    $url .= "/cgi-bin/webscr";
+  }
+
+  return $url;
+}
+
+/**
+ * IPN Listener Handler
+ */
+function jstor_paypal_ipn() {
+	global $language;
+	$site_email = variable_get('site_mail', '');
+	$settings = variable_get('jstor_paypal_settings', array());
+
+	// intantiate the IPN listener
+	include('jstor_paypal_ipn_listener.php');
+	$listener = new IpnListener();
+	
+		if (isset($settings['sandbox']) && $settings['sandbox']) {
+			// tell the IPN listener to use the PayPal test sandbox
+			$listener->use_sandbox = TRUE;
+		}
+		//Set SSL
+		$listener->use_ssl = TRUE;
+	
+	// try to process the IPN POST
+	try {
+			$listener->requirePostMethod();
+			$verified = $listener->processIpn();
+	} catch (Exception $e) {
+			watchdog('jstor_paypal', $e->getMessage(), array(), WATCHDOG_ERROR);
+			exit(0);
+	}
+
+	if ($verified) {
+		//Validate the Payment.
+		$errmsg = '';   // stores errors from fraud checks
+		
+		// // 1. Make sure the payment status is "Completed" 
+		// if ($_POST['payment_status'] != 'Completed') { 
+				// // simply ignore any IPN that is not completed
+				// exit(0); 
+		// }
+
+		// 2. Make sure seller email matches your primary account email.
+		if ($_POST['receiver_email'] != $settings['email']) {
+				$errmsg .= "'receiver_email' does not match: ";
+				$errmsg .= $_POST['receiver_email']."\n";
+		}
+		
+		//Weform Transaction Id & Transaction Status IDs will be set in order to add these fields in the downloadable result set;
+		$webform_txn_id = NULL;
+		$webform_txn_status = NULL;
+		
+		
+		// 3. Make the PayPal data matches the user input record. 
+		$item_number = $_POST['item_number'];
+		$payer_email = $_POST['payer_email'];
+		$mc_gross = $_POST['mc_gross'];
+		$sid = $_POST['custom'];		
+		$txn_id = $_POST['txn_id'];		
+		$txn_status = $_POST['payment_status'];
+		
+		if(isset($sid)){
+			$submission = _jstor_webform_get_submission($settings['paypal_form_node'], $sid, TRUE);
+
+			$webform_node = node_load($submission->nid);
+			$mapping = _jstor_paypal_webform_component_mapping($webform_node);
+			$webform_txn_id = $mapping['txn_id'];
+			$webform_txn_status = $mapping['txn_status'];
+	
+			
+			if($item_number !== $submission->data[$mapping['item_number']][0] || $payer_email !== $submission->data[$mapping['email']][0] || (abs($mc_gross - $submission->data[$mapping['amount']][0]) > 0.00001)) {
+				$errmsg .= "User input data - Item Number\Email\Amount, doesn't match with the PayPal response:\n";
+				$errmsg .= "Data Key		|  User Entered		|		PayPal Response\n";
+				$errmsg .= "Item Number		|" .  $submission->data[$mapping['item_number']][0]	. " |		$item_number\n";
+				$errmsg .= "Email		|" .  $submission->data[$mapping['email']][0]	. " |		$payer_email\n";
+				$errmsg .= "Amount		|" .  $submission->data[$mapping['amount']][0]	. " |		$mc_gross\n";
+			} 
+		}
+		else {
+			$errmsg .= "There is no submission made in About JSTOR for this transaction";
+		}
+		
+		// 4. Make sure the currency code matches
+		if ($_POST['mc_currency'] != 'USD') {
+				$errmsg .= "'mc_currency' does not match: ";
+				$errmsg .= $_POST['mc_currency']."\n";
+		}
+		
+		$query = db_select('jstor_paypal_transactions');
+		$query->addExpression('COUNT(id)', 'count');
+		$query->condition('txn_id', $_POST['txn_id'], '=');
+		$count_transactions = $query->execute()->fetchField();
+		
+		if ($count_transactions != 0) {
+				$errmsg .= "'txn_id' has already been processed: ".$_POST['txn_id']."\n";
+		}
+		
+		
+		// Send email to the Admin only about the Transactions.
+		if (!empty($errmsg)) {
+			// manually investigate errors from the fraud checking
+			$body = "IPN failed checks: \n$errmsg\n\n";
+			$body .= $listener->getTextReport();
+			drupal_mail('jstor_paypal', 'notify_failure', $settings['notify_email'], $language, array('body' => $body, 'subject' => 'IPN Fraud Warning'), $site_email, TRUE);
+		} else {
+			$body = "PayPal Transaction Details:\n\n";
+			foreach($_POST as $k => $v) {
+				$body .= "$k: $v\n";
+			}
+			if($_POST['payment_status'] == 'Completed') {
+				drupal_mail('jstor_paypal', 'notify_success', $settings['notify_email'], $language, array('body' => $body, 'subject' => 'Successful PayPal Transaction via about.jstor'), $site_email, TRUE);
+			} else {
+				drupal_mail('jstor_paypal', 'notify_incomplete', $settings['notify_email'], $language, array('body' => $body, 'subject' => 'Incomplete PayPal Transaction via about.jstor'), $site_email, TRUE);
+			}
+		}
+
+		// Record this transaction
+		if(isset($_POST['txn_id']) && isset($_POST['payer_email']) && isset($_POST['mc_gross'])
+					&& isset($_POST['payment_status']) && isset($_POST['custom']) && isset($_POST['payer_email'])){	
+		$id = db_insert('jstor_paypal_transactions')
+								->fields(array(
+									'txn_id' => $_POST['txn_id'], 
+									'payer_email' => $_POST['payer_email'], 
+									'mc_gross' => $_POST['mc_gross'], 
+									'payment_status' => $_POST['payment_status'], 
+									'sid' => $_POST['custom'],
+									'item_number' => $_POST['item_number'],
+									))->execute();
+		}							
+		if(isset($txn_id) && isset($sid)){						
+			//Updating the webform data record
+			db_update('webform_submitted_data')
+				->fields(array(
+				'data' => $txn_id, 
+			))
+				->condition('cid', $webform_txn_id )
+				->condition('sid', $sid)
+				->execute();
+		}
+		
+		if(isset($txn_status) && isset($sid)){						
+			db_update('webform_submitted_data')
+				->fields(array(
+				'data' => $txn_status, 
+			))
+				->condition('cid', $webform_txn_status)
+				->condition('sid', $sid)
+				->execute();
+		}			
+	} else {
+			// manually investigate the invalid IPN
+				$body = $listener->getTextReport();
+				drupal_mail('jstor_paypal', 'notify_invalid', $settings['notify_email'], $language, array('body' => $body, 'subject' => 'Invalid IPN'), $site_email, TRUE);
+	}
+}
+
+/**
+ * Implementation of hook_mail().
+ *
+ */
+function jstor_paypal_mail($key, &$message, $params) {
+  $settings = variable_get('jstor_paypal_settings', array());
+	switch($key) {
+		case 'notify_failure':
+			$message['subject'] = isset($settings['failure_txn_mail_subject']) ? $settings['failure_txn_mail_subject'] : 'Failure PayPal Transaction via about.jstor';
+		break;
+		case 'notify_incomplete':
+			$message['subject'] = isset($settings['incomplete_txn_mail_subject']) ? $settings['incomplete_txn_mail_subject'] : 'Incomplete PayPal Transaction via about.jstor';
+		break;
+		case 'notify_success':
+			$message['subject'] = isset($settings['success_txn_mail_subject']) ? $settings['success_txn_mail_subject'] : 'Successful PayPal Transaction via about.jstor';
+		break;
+		case 'notify_invalid':
+			$message['subject'] = 'Invalid IPN notification';
+		break;
+		default:
+			$message['subject'] = isset($params['subject']) ? $params['subject'] : "";
+		break;
+	}
+
+  if (isset($params['body'])) {
+    $message['body'][] = $params['body']; 
+  }
+  if (isset($params['headers']) && is_array($params['headers'])) {   
+    $message['headers'] += $params['headers'];
+  }
+}
+
+/**
+ * Fetch a specified submission for a webform node.
+ */
+function _jstor_webform_get_submission($nid, $sid, $reset = FALSE) {
+  static $submissions = array();
+
+  if ($reset) {
+    $submissions = array();
+    if (!isset($sid)) {
+      return;
+    }
+  }
+
+  // Load the submission if needed.
+  if (!isset($submissions[$sid])) {
+    $new_submissions = _jstor_webform_get_submissions(array('nid' => $nid, 'sid' => $sid));
+    $submissions[$sid] = isset($new_submissions[$sid]) ? $new_submissions[$sid] : FALSE;
+  }
+
+  return $submissions[$sid];
+}
+
+/**
+ * Return all the submissions for a particular node.
+ *
+ * Parameters
+ * 
+ * $filters: An array of filters to apply to this query. Usually in the format array('nid' => $nid, 'uid' => $uid). A single integer may also be passed in, which will be equivalent to specifying a $nid filter.
+
+ * $header: If the results of this fetch will be used in a sortable table, pass the array header of the table.
+
+ * $pager_count: Optional. The number of submissions to include in the results.
+ * 
+ */
+function _jstor_webform_get_submissions($filters = array(), $header = NULL, $pager_count = 0) {
+  $submissions = array();
+
+  if (!is_array($filters)) {
+    $filters = array('nid' => $filters);
+  }
+
+  // UID filters need to be against a specific table.
+  if (isset($filters['uid'])) {
+    $filters['u.uid'] = $filters['uid'];
+    unset($filters['uid']);
+  }
+
+  // No need to find SIDs if it was given to us.
+  if (isset($filters['sid'])) {
+    $sids = array($filters['sid']);
+  }
+  // Build the list of SIDs that need to be retrieved.
+  else {
+    $pager_query = db_select('webform_submissions', 'ws')->fields('ws', array('sid'));
+    foreach ($filters as $column => $value) {
+      $pager_query->condition($column, $value);
+    }
+
+    if (isset($filters['u.uid']) || !empty($header)) {
+      // Join to the users table for sorting by user name.
+      $pager_query->leftJoin('users', 'u', 'u.uid = ws.uid');
+    }
+
+    if (isset($filters['u.uid']) && $filters['u.uid'] === 0) {
+      if (!empty($_SESSION['webform_submission'])) {
+        $anonymous_sids = array_keys($_SESSION['webform_submission']);
+        $pager_query->condition('sid', $anonymous_sids, 'IN');
+      }
+      else {
+        $pager_query->condition('sid', 0);
+      }
+    }
+
+    if (is_array($header)) {
+      // Extending the query instatiates a new query object.
+      $pager_query = $pager_query->extend('TableSort');
+      $pager_query->orderByHeader($header);
+    }
+    else {
+      $pager_query->orderBy('sid', 'ASC');
+    }
+
+    if ($pager_count) {
+      // Extending the query instatiates a new query object.
+      $pager_query = $pager_query->extend('PagerDefault');
+      $pager_query->limit($pager_count);
+    }
+    $result = $pager_query->execute();
+
+    $sids = array();
+    foreach ($result as $row) {
+      $sids[] = $row->sid;
+      $submissions[$row->sid] = FALSE;
+    }
+  }
+
+  // If there are no submissions being retrieved, return an empty array.
+  if (empty($sids)) {
+    return $submissions;
+  }
+
+  // Query the required submission data.
+  $query = db_select('webform_submitted_data', 'sd');
+  $query->leftJoin('webform_submissions', 's', 's.sid = sd.sid');
+  $query->leftJoin('users', 'u', 'u.uid = s.uid');
+  $query
+    ->fields('s')
+    ->fields('sd', array('cid', 'no', 'data'))
+    ->fields('u', array('name'))
+    ->condition('sd.sid', $sids, 'IN')
+    ->orderBy('sd.sid', 'ASC')
+    ->orderBy('sd.cid', 'ASC')
+    ->orderBy('sd.no', 'ASC');
+
+  // By adding the NID to this query we allow MySQL to use the primary key on
+  // in webform_submitted_data for sorting (nid_sid_cid_no).
+  if (isset($filters['nid'])) {
+    $query->condition('sd.nid', $filters['nid']);
+  }
+
+  $result = $query->execute();
+
+  // Convert the queried rows into submissions.
+  $previous = 0;
+  foreach ($result as $row) {
+    if ($row->sid != $previous) {
+      $submissions[$row->sid] = new stdClass();
+      $submissions[$row->sid]->sid = $row->sid;
+      $submissions[$row->sid]->nid = $row->nid;
+      $submissions[$row->sid]->submitted = $row->submitted;
+      $submissions[$row->sid]->remote_addr = $row->remote_addr;
+      $submissions[$row->sid]->uid = $row->uid;
+      $submissions[$row->sid]->name = $row->name;
+      $submissions[$row->sid]->is_draft = $row->is_draft;
+      $submissions[$row->sid]->data = array();
+    }
+    // CID may be NULL if this submission does not actually contain any data.
+    if ($row->cid) {
+      $submissions[$row->sid]->data[$row->cid][$row->no] = $row->data;
+    }
+    $previous = $row->sid;
+  }
+
+  return $submissions;
+}

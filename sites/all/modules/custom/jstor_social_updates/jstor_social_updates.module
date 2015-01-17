@@ -1,0 +1,213 @@
+<?php
+
+/**
+ * Implements hook_permission().
+ */
+function jstor_social_updates_permission() {
+  return array(
+    'administer social media links' => array(
+      'title' => t('Administer social media links'),
+      'description' => t('Allows a user to configure and administrate social media links.'),
+    ),
+  );
+}
+
+/**
+ * Implements of hook_menu()
+ */
+function jstor_social_updates_menu() {
+  $items['admin/config/services/jstor-social-media'] = array(
+    'title' => 'Social media settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('jstor_social_updates_form'),
+    'access arguments' => array('administer social media links'),
+    'type' => MENU_NORMAL_ITEM,
+    'description' => t('Configure social media links.'),
+    'weight' => 10,
+    'file' => 'jstor_social_updates.admin.inc',
+  );
+  return $items;
+}
+
+
+/**
+ * Implements hook_block_info().
+ */
+function jstor_social_updates_block_info() {
+   $blocks['jstor-social-updates'] = 
+        array('info' => t('Jstor Social Updates from Social Networking Sites')); 
+   return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function jstor_social_updates_block_view($delta='') {
+$block = array();
+switch ($delta) {
+    case 'jstor-social-updates':
+        $block['subject'] = t('');
+        $block['content'] = jstor_social_updates_rail();
+        break;
+}
+return $block;
+}
+
+/**
+ * Callback for social block updates view.
+ */
+function jstor_social_updates_rail() {
+
+  $jstor_social_updates = &drupal_static(__FUNCTION__);
+  //cache_clear_all('jstor_social_updates');
+  if (!isset($jstor_social_updates)) {
+    $cache = cache_get('jstor_social_updates');
+    if (is_object($cache)) {
+      $jstor_social_updates = $cache->data;
+    }
+    else {
+      $twitter_user_id = (int) variable_get('jstor_social_updates_twitter_user_id');
+      $no_twitter_updates = (int) variable_get('jstor_social_updates_no_twitter_updates');
+      $twitter_updates = jstor_social_updates_get_twitter($no_twitter_updates, $twitter_user_id);
+      $facebook_updates = jstor_social_updates_get_facebook();
+      $limit = variable_get('jstor_social_updates_total', 3);
+      $updates = array();
+
+
+      $updates = array_merge($facebook_updates, $twitter_updates);
+      $buzz = array();
+      foreach($updates as $update){
+        $buzz[$update['time']] = $update;
+      }
+      ksort($buzz);
+      $buzz = array_slice($buzz, 0, $limit, TRUE);
+      $jstor_social_updates['updates'] = $buzz;
+      $cache_duration = time() + (60*60*5); // Cache for 5 mins
+      cache_set('jstor_social_updates', $jstor_social_updates, 'cache', $cache_duration);
+    }
+  }
+  $tpl_path = drupal_get_path('module', 'jstor_social_updates') . '/jstor-social-updates.tpl.php';
+  $output = theme_render_template($tpl_path, $jstor_social_updates);
+  
+  return $output;
+}
+
+/**
+ * Callback for twitter updates.
+ */
+function jstor_social_updates_get_twitter($tweetsToDisplay, $user_id) {
+	$twitterrequest = 'http://api.twitter.com/1/statuses/user_timeline.json?user_id=' . $user_id . '&include_rts=true&count=' . $tweetsToDisplay;	
+	$ch = curl_init($twitterrequest);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    if(ENVIRONMENT == 'LOCAL'){
+      curl_setopt($ch, CURLOPT_PROXYPORT, '6050');
+      curl_setopt($ch, CURLOPT_PROXY, 'proxy.cognizant.com');
+    }
+    $twitterinput = curl_exec($ch);
+    
+	curl_close($ch);
+	$var = json_decode($twitterinput);
+        
+	$twiiter = array();
+	foreach($var as $key => $value) {
+		$timestamp = strtotime($value->created_at);
+		$txt = preg_replace('%(https?://)[^\s]*%', '$1...', $value->text);
+		$twitter[$timestamp] = array(
+		  'status' => $value->text,
+		  'user' => $value->user->name,
+		  'source' => 'twitter',
+                  'time' => $timestamp
+		);
+	}
+    
+	return ($twitter);
+}
+
+/**
+ * Callback for facebook updates.
+ */
+function jstor_social_updates_get_facebook() {
+  
+  $app_id = variable_get('jstor_social_updates_facebook_app_id');
+  $app_secret = variable_get('jstor_social_updates_facebook_app_secret_id');
+  $fbID = variable_get('jstor_social_updates_facebook_id');
+  $limit = variable_get('jstor_social_updates_no_facebook_updates');
+
+  
+  $access_token = $app_id.'|'.$app_secret;
+  $fb_source_num_id = $fbID;
+  $feed_limit = 50;
+  
+  $target_url = "https://graph.facebook.com/$fb_source_num_id/feed?access_token=$access_token&limit=$feed_limit";
+  
+  $c = curl_init($target_url);
+  curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
+  if(ENVIRONMENT == 'LOCAL'){
+    curl_setopt($c, CURLOPT_PROXYPORT, '6050');
+    curl_setopt($c, CURLOPT_PROXY, 'proxy.cognizant.com');
+  }
+  curl_setopt($c, CURLOPT_SSL_VERIFYPEER, false); //don't verify SSL (required for some servers)
+  curl_setopt($c, CURLOPT_SSL_VERIFYHOST, false); //don't verify SSL (required for some servers)
+  $facebook_data = json_decode(curl_exec($c)); //get data from facebook and decode JSON
+  curl_close($c); //close the connection
+  $buzz = array();
+  foreach($facebook_data->data as $status){
+    if($status->from->id == $fb_source_num_id && isset($status->message)){
+      $status_time = strtotime($status->created_time);
+      $buzz[$status_time] = array('status' => $status->message,'user' => $status->from->name, 'time' => $status_time, 'source' => 'facebook');
+    }
+  }
+ $buzz = array_slice($buzz, 0, $limit, TRUE);
+ return $buzz;
+}
+
+
+function jstor_social_updates_get_facebook_OLD() {
+	// Load the library.
+	if(function_exists('libraries_get_path')){
+		$path = libraries_get_path('facebook');
+		$path = "$path/facebook.php";
+	}else{
+		$path = drupal_get_path('module', 'jstor_social_updates') . '/library/facebook.php';
+	}
+	require_once($path);
+        
+
+	$limit = variable_get('jstor_social_updates_no_facebook_updates');
+	$app_id = variable_get('jstor_social_updates_facebook_app_id');
+	$app_secret = variable_get('jstor_social_updates_facebook_app_secret_id');
+	$fbID = variable_get('jstor_social_updates_facebook_id');
+	$facebook = new Facebook(array(
+              'appId' => $app_id,
+              'secret' => $app_secret,
+              'cookie' => true
+        ));
+	$access_token = $facebook->getAccessToken();
+	//must be https when using an access token
+	$url="https://graph.facebook.com/".$fbID."/feed?access_token=".$access_token."&limit=".$limit;
+	
+	$c = curl_init($url);
+        
+	curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
+        if(ENVIRONMENT == 'LOCAL'){
+          curl_setopt($c, CURLOPT_PROXYPORT, '6050');
+          curl_setopt($c, CURLOPT_PROXY, 'proxy.cognizant.com');
+        }
+	curl_setopt($c, CURLOPT_SSL_VERIFYPEER, false); //don't verify SSL (required for some servers)
+	curl_setopt($c, CURLOPT_SSL_VERIFYHOST, false); //don't verify SSL (required for some servers)
+	$facebook_data = json_decode(curl_exec($c)); //get data from facebook and decode JSON
+        
+	curl_close($c); //close the connection
+	
+	$fb_status = array();
+	foreach($facebook_data->data as $key => $dPost){
+	
+		//if($dPost->from->id==$fbID && isset($dPost->message)){
+                if(isset($dPost->message)){
+			$dTime = strtotime($dPost->created_time);
+			$fb_status[$dTime] = array('status' => $dPost->message,'user' => $dPost->from->name, 'time' => $dTime, 'source' => 'facebook');
+		}
+	}
+	
+	return $fb_status;
+}

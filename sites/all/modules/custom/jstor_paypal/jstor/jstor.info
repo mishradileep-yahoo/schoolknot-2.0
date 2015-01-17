@@ -1,0 +1,8 @@
+name = JSTOR
+description = Custom module developed for handle/manage complex tasks.
+core = 7.x
+package = JSTOR
+version = "7.x-1.0"
+core = "7.x"
+project = "ITHAKA"
+datestamp = "1342428970"
