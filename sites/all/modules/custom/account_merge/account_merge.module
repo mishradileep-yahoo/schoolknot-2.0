@@ -1,0 +1,254 @@
+<?php
+/**
+ * Implements hook_permission().
+ */
+function account_merge_permission () {
+  return array(
+      'account merge' => array(
+          'title' => t('Account Merge'),
+          'description' => t('Allow school parents to merge accounts.')
+      )
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function account_merge_menu () {
+  $items['account_merge/merge'] = array(
+	'title'            	=> 'Merge Account',
+	'type'             	=> MENU_LOCAL_ACTION,
+	'page callback' 	=> 'drupal_get_form',
+	'page arguments' 	=> array('account_merge'),
+	'access arguments' 	=> array('account merge'),
+	'weight'           	=> -3,
+  );
+  $items['account_merge/student_autocomplete'] = array(
+  	'title' => 'Message to school members',
+    'page callback' => 'account_merge_autocomplate_callback',
+  	'type' => MENU_CALLBACK,
+    'access callback' => TRUE,
+  );
+  $items['account_merge/merge/confirm/%/%'] = array(
+	'title'            	=> 'Merge Account',
+	'type'             	=> MENU_LOCAL_ACTION,
+	'page callback' 	=> 'account_merge_confirm',
+    'page arguments' => array(3, 4),
+	'access arguments' 	=> array('account merge'),
+	'weight'           	=> -3,
+  );
+  return $items;
+}
+
+
+function account_merge($form, &$form_state, $nid = '') {
+  $form['parent'] = array(
+      '#type' => 'textfield', 
+  	  '#title' => t('Another student name'), 
+      '#description' => t('Start typing the name of student and select a student from options listed below.'),
+      '#size' => 60, 
+      '#maxlength' => 128,
+      '#autocomplete_path' => 'account_merge/student_autocomplete',
+      '#prefix' => '<div class="account-merge-autocomplete">',
+	  '#suffix' => '</div>', 
+    );
+    $form['password'] = array(
+      '#type' => 'password', 
+  	  '#title' => t('Password'), 
+      '#description' => t('Your account password.'),
+      '#size' => 60, 
+      '#maxlength' => 128,
+    );
+    $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+    return $form;
+}
+
+function account_merge_validate($form, &$form_state, $nid = '') {
+	global $user;
+	if(!user_authenticate($user->name, $form_state['values']['password'])) {
+		form_set_error('password', 'Password not matching.');
+	}
+}
+
+function account_merge_submit($form, &$form_state, $nid = '') {
+	global $user;
+	
+	$student_name_sr_number = $form_state['values']['parent'];
+    $result = preg_match('^\[(.*?)\]^', $student_name_sr_number, $matches);
+    $recipent_user_id = $matches[$result];
+    $recipent_user = user_load_by_name($recipent_user_id);
+    
+    $db_name = 'account_merge';
+ 
+	$data = array(
+	     'host_user' => $user->uid,
+	     'guest_user' => $recipent_user->uid,
+	     'request_timestamp' => time(),
+		 'request_status' => 0,
+	);      
+ 
+	$account_merge_new_record = drupal_write_record($db_name, $data);
+
+	$suject = 'Account Merge request';
+    $message = 'Dear Parent,' . "\n";
+
+
+    $message .= 'Parent of ' . _user_full_name_by_user_obj($user) . ' send a acccount merge request with you.' . "\n";
+    $message .= 'You may allow or deny to this merge request by clicking on below choice.' . "\n";
+	$message .= '' . "\n";
+    $message .= l('I agree to this merge request.', 'account_merge/merge/confirm/'.$data['amid'].'/allow') . "\n";
+	$message .= '' . "\n";
+    $message .= l('I do not agree to this merge request.', 'account_merge/merge/confirm/'.$data['amid'].'/deny') . "\n";
+	$message .= '' . "\n";
+    $message .= 'Thanks,' . "\n";
+    $message .= 'Team SchoolKnot  ' . "\n";
+
+	
+	_send_private_message(array($recipent_user), $suject, $message, 0);
+	//pr($message); die;
+    
+    drupal_set_message(t('Account merge request sent to another account. Please login to guest account and accept the invitation'), 'status');
+    drupal_goto('student-tracker/progress-sheet');
+}
+
+/*
+ * Student Merge autocomplete 
+ */
+function account_merge_autocomplate_callback($string = '') {
+  $matches = array();
+  if ($string) {
+    global $user;
+    $user_school_id = _get_school_node_id_for_school_admin();
+
+    $parents_for_school = _get_all_parents_for_school($user_school_id['nid']);
+    $parent_ids = array();
+    foreach($parents_for_school as $parent_id => $parent) {
+      array_push($parent_ids, $parent_id);
+    }
+    $query = db_select('users', 'u');
+    $query->leftJoin('field_data_field_student_first_name', 'sfname', 'u.uid = sfname.entity_id');
+    $query->leftJoin('field_data_field_student_last_name', 'slname', 'u.uid = slname.entity_id');
+    $query->leftJoin('field_data_field_student_middle_name', 'smname', 'u.uid = smname.entity_id');
+    $query->leftJoin('field_data_field_student_registration_id', 'srnumber', 'u.uid = srnumber.entity_id');
+
+    
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->fields('sfname', array('field_student_first_name_value'))
+      ->fields('slname', array('field_student_last_name_value'))
+      ->fields('smname', array('field_student_middle_name_value'))
+      ->fields('srnumber', array('field_student_registration_id_value'))
+      
+      ->condition(db_or()
+        ->condition('sfname.field_student_first_name_value', db_like($string) . '%', 'LIKE')
+        ->condition('slname.field_student_last_name_value', db_like($string) . '%', 'LIKE')
+        ->condition('smname.field_student_middle_name_value', db_like($string) . '%', 'LIKE')
+      )
+      
+      ->condition('u.uid', $parent_ids, 'IN')
+      ->condition('u.uid', $user->uid, '!=')
+      ->condition('u.status', '1', '=')
+      
+      ->range(0, 10);
+      
+      $result = $query->execute();
+    foreach ($result as $student) {
+      $matches[$student->field_student_first_name_value . ' ' . $student->field_student_middle_name_value . ' ' . $student->field_student_last_name_value . " [$student->name]"] = check_plain($student->field_student_first_name_value . ' ' . $student->field_student_middle_name_value . ' ' . $student->field_student_last_name_value);
+    }
+  }
+  
+  drupal_json_output($matches);
+}
+
+/*
+ * Return Dropdown for merged account guest users
+ */
+function _get_merged_account_dd($user) {
+	$args = arg();
+	$selected_user = '';
+	
+	if(isset($args[2]) && $args[2] != '') {
+		$selected_user = $args[2];
+	}
+	
+	$select_string = '';
+	$option_string = '';
+	
+	$account_merge_query = db_select('account_merge', 'am');
+	$account_merge_query
+		->condition('am.host_user', $user->uid, '=')
+		->condition('am.request_status', 1, '=')
+		->fields('am', array('guest_user'));
+		
+	$results = $account_merge_query->execute()->fetchAll(); //->rowCount();
+	$result_count = $account_merge_query->execute()->rowCount();
+	//pr($results);
+	if($result_count > 0) {
+		$dd_users[] = $user->uid;
+		foreach($results as $merged_user) {
+			$dd_users[] = $merged_user->guest_user;
+		}
+		$users_loaded = user_load_multiple($dd_users);
+		foreach($users_loaded as $user_loaded) {
+			$selected_string = '';
+			if($selected_user == $user_loaded->uid) {
+				$selected_string = ' selected = "selected" ';
+			}
+			$option_string .= '<option value="' . $user_loaded->uid . '" ' . $selected_string . '>' . $user_loaded->field_student_first_name['und'][0]['value'] . ' ' . $user_loaded->field_student_last_name['und'][0]['value'] . '</option>';
+		}
+		
+		$accountmerge_module_path = drupal_get_path('module', 'account_merge');
+		drupal_add_js($accountmerge_module_path . '/js/account_merge.js');
+		
+		$select_string .= '<select class="exam_wise_progress_bar" id="account_merge_account_change">';
+		$select_string .= $option_string;
+		$select_string .= '</select>';
+	}
+	return $select_string;
+}
+
+
+
+function account_merge_confirm($amid, $decision) {
+	if('allow' == $decision) {
+		$db_name = 'account_merge';
+		$data = array(
+			 'amid' => $amid,
+			 'request_status' => 1,
+		);      
+		drupal_write_record($db_name, $data, 'amid');
+		
+		$result = db_select('account_merge', 'am')
+	    ->fields('am')
+	    ->execute()
+	    ->fetchAssoc();
+	    
+	    $account_merge_result = db_select('account_merge', 'am')
+		    ->fields('am', array('host_user'))
+		    ->condition('am.amid', $amid, '=')
+		    ->execute()->fetchAssoc();
+		$user = user_load($account_merge_result['host_user']);
+
+		$suject = 'Account Merge request confirmed';
+	    $message = 'Dear Parent,' . "\n";
+		$message .= '' . "\n";
+		$message .= 'Your account merge request with ' . _user_full_name_by_user_obj($user) . ' has been confirmed.' . "\n";
+		//$message .= 'You may now access profile of Bhanu Parkash from below URL by selecting Bhanu Prakash from seelect option at top.' . "\n";
+		//$message .= l(url('student-tracker/progress-sheet'), 'student-tracker/progress-sheet');
+		$message .= '' . "\n";
+		$message .= 'Thanks,' . "\n";
+		$message .= 'Team SchoolKnot ';
+		_send_private_message(array($user), $suject, $message, 0);
+	    drupal_set_message(t('Account merge request sent to another account. Please login to guest account and accept the invitation'), 'status');
+	}
+	else if('deny' == $decision) {
+		$num_deleted = db_delete('account_merge')
+		  ->condition('amid', $amid)
+		  ->execute();
+		drupal_set_message(t('Account merge request removed.'), 'status');
+	}
+	drupal_goto('messages');
+}

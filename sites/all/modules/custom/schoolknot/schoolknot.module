@@ -1,0 +1,1145 @@
+<?php
+
+/*
+ * HOOK_feeds_after_parse implementation
+*/ 
+function schoolknot_feeds_after_parse(FeedsSource $source, FeedsParserResult $result) {
+  global $user;
+  $user_groups = og_get_groups_by_user();
+  $user_school = reset($user_groups['node']);
+    
+  if($source->importer()->id == 'students_bulk_upload_feeds_xls') {
+   
+    $feed_source = node_load($source->feed_nid);
+    $user_groups = og_get_groups_by_user();
+		$user_school = reset($user_groups['node']);
+		
+  	  // Load the library.
+			if(function_exists('libraries_get_path')){
+  			$path = libraries_get_path('PHPExcel');
+  			$pathLib = "$path/PHPExcel/IOFactory.php";
+  			$pathDate = "$path/PHPExcel/Shared/Date.php";
+			}
+			else {
+  			$pathLib = drupal_get_path('module', 'feeds_xls') . '/PHPExcel/PHPExcel/IOFactory.php';
+  			$pathDate = drupal_get_path('module', 'feeds_xls') . '/PHPExcel/PHPExcel/Shared/Date.php';
+			}
+			
+			//die($pathDate);
+			
+			require_once $pathLib;
+			require_once $pathDate;
+			
+      $objPHPExcel = new PHPExcel();		
+
+    // Validate First
+    foreach($result->items as $key => $row) {
+    	if(!($result->items[$key]['Student Registration ID'] != '')) {
+    		drupal_set_message('Student Registration ID at row ' . ($key + 2) . ' is blank. Student can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+    	elseif(!($result->items[$key]['Student First Name'] != '')) {
+    		drupal_set_message('Student First Name at row ' . ($key + 2) . ' is blank. Student can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+    	elseif(!($result->items[$key]['Student Date of Birth (in MM/DD/YYYY)'] != '')) {
+    		drupal_set_message('Student Date of Birth at row ' . ($key + 2) . ' is blank. Student can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+    	
+
+			  
+    	if($result->items[$key]['Student Date of Birth (in MM/DD/YYYY)'] != '') {
+  			date_default_timezone_set(drupal_get_user_timezone());
+  			
+      	if (strpos($result->items[$key]['Student Date of Birth (in MM/DD/YYYY)'], '/') !== false) {
+          $date_tmp = PHPExcel_Shared_Date::stringToExcel($result->items[$key]['Student Date of Birth (in MM/DD/YYYY)']);
+          $result->items[$key]['Student Date of Birth (in MM/DD/YYYY)'] = $date_tmp;
+        }
+
+  			$date = PHPExcel_Shared_Date::ExcelToPHPObject($date_tmp);
+  			
+  			$curDate = new DateTime();
+  			
+  			if($date > $curDate) {
+  				drupal_set_message('Student Date of Birth at row ' . ($key + 2) . ' is future date. Student can\'t be imported.', 'warning');
+      			unset($result->items[$key]);
+  			}
+    	}
+    }
+   
+    foreach($result->items as $key => $row) {
+
+      $date = PHPExcel_Shared_Date::ExcelToPHPObject($row['Student Date of Birth (in MM/DD/YYYY)']);
+      $formatedDate = $date->format('Y-m-d H:i:s');
+      $formatedDateForPassword = $date->format('Ymd');
+      
+      $username = $user_school . '_' . $result->items[$key]['Student Registration ID'];
+      $username = strtolower($username);
+      $username = preg_replace('@[^a-z0-9_]+@','_',$username);
+      
+      $result->items[$key]['User Name'] = $username;
+      $result->items[$key]['Password'] = $formatedDateForPassword;
+      $result->items[$key]['DoB'] = $formatedDate;
+      $result->items[$key]['Email'] = $username . '@test.schoolknot.com';
+      $result->items[$key]['Class'] = $feed_source->field_class['und'][0]['target_id'];
+      $result->items[$key]['School'] = $user_school;
+      $result->items[$key]['Student Date of Birth (in MM/DD/YYYY)'] = $formatedDate;
+    }
+  }
+  if($source->importer()->id == 'teachers_bulk_upload_feeds_xls') {
+
+    $feed_source = node_load($source->feed_nid);
+    $user_groups = og_get_groups_by_user();
+		$user_school = reset($user_groups['node']);
+		
+  	  // Load the library.
+			if(function_exists('libraries_get_path')){
+  			$path = libraries_get_path('PHPExcel');
+  			$pathLib = "$path/PHPExcel/IOFactory.php";
+  			$pathDate = "$path/PHPExcel/Shared/Date.php";
+			}
+			else {
+  			$pathLib = drupal_get_path('module', 'feeds_xls') . '/PHPExcel/PHPExcel/IOFactory.php';
+  			$pathDate = drupal_get_path('module', 'feeds_xls') . '/PHPExcel/PHPExcel/Shared/Date.php';
+			}
+			
+			//die($pathDate);
+			
+			require_once $pathLib;
+			require_once $pathDate;
+			
+      $objPHPExcel = new PHPExcel();		
+
+    // Validate First
+    foreach($result->items as $key => $row) {
+    	if(!($result->items[$key]['Teacher Employee ID'] != '')) {
+    		drupal_set_message('Teacher Employee ID at row ' . ($key + 2) . ' is blank. Teacher can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+    	elseif(!($result->items[$key]['Teacher First Name'] != '')) {
+    		drupal_set_message('Teacher First Name at row ' . ($key + 2) . ' is blank. Teacher can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+      elseif(!($result->items[$key]['Teacher Date of Joining (in MM/DD/YYYY)'] != '')) {
+    		drupal_set_message('Teacher Date of Joining at row ' . ($key + 2) . ' is blank. Teacher can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+    	if($result->items[$key]['Teacher Date of Joining (in MM/DD/YYYY)'] != '') {
+  			date_default_timezone_set(drupal_get_user_timezone());
+  			
+  			$date = PHPExcel_Shared_Date::ExcelToPHPObject($result->items[$key]['Teacher Date of Joining (in MM/DD/YYYY)']);
+  			$curDate = new DateTime();
+  			
+  			if($date > $curDate) {
+  				drupal_set_message('Teacher Date of Joining at row ' . ($key + 2) . ' is future date. Teacher can\'t be imported.', 'warning');
+      			unset($result->items[$key]);
+  			}
+    	}
+    }
+   
+    foreach($result->items as $key => $row) {
+
+      $date = PHPExcel_Shared_Date::ExcelToPHPObject($row['Teacher Date of Joining (in MM/DD/YYYY)']);
+      $formatedDate = $date->format('Y-m-d H:i:s');
+      $formatedDateForPassword = $date->format('Ymd');
+      
+      $username = $user_school . '_te_' . $result->items[$key]['Teacher Employee ID'];
+      $username = strtolower($username);
+      $username = preg_replace('@[^a-z0-9_]+@','_',$username);
+      
+      $result->items[$key]['User Name'] = $username;
+      $result->items[$key]['Password'] = $formatedDateForPassword;
+      $result->items[$key]['DoB'] = $formatedDate;
+      $result->items[$key]['Email'] = $username . '@test.schoolknot.com';
+      $result->items[$key]['School'] = $user_school;
+      $result->items[$key]['Teacher Date of Joining (in MM/DD/YYYY)'] = $formatedDate;
+    }
+  }
+  
+  if($source->importer()->id == 'student_progress_data_feeds_xls_importer') {
+    foreach($result->items as $key => $row) {
+      $student_SR_number = $result->items[$key]['Student SR No'];
+      
+      if($result->items[$key]['Class'] == '') {
+      		drupal_set_message('Class at row ' . ($key + 2) . ' is blank. Progress data can\'t be imported.', 'warning');
+      		unset($result->items[$key]); continue;
+      	}
+      	if($result->items[$key]['Class'] != '') {
+  			$classQuery = db_select('node')
+  				->fields('node', array('nid', 'title'))
+  				->condition('uid', $user->uid, '=')
+  				->condition('type', 'classes', '=')
+  				->condition('title', $result->items[$key]['Class'], '=');
+  				
+  				$classRowCounts = $classQuery->execute()->rowCount();
+  				
+  
+      		if(!($classRowCounts > 0)) {
+      			drupal_set_message('Class at row ' . ($key + 2) . ' doesn\'t exist. Progress data can\'t be imported.', 'warning');
+      			unset($result->items[$key]); continue;
+      		}
+      		else {
+      			$classResult = $classQuery->execute()->fetchAll();
+      			$result->items[$key]['Class'] = $classResult[0]->nid;
+      		}
+      	}
+      
+      
+    	if($result->items[$key]['Student SR No'] == '') {
+    		drupal_set_message('Student Registration ID at row ' . ($key + 2) . ' is blank. Progress data can\'t be imported.', 'warning');
+    		unset($result->items[$key]); continue;
+    	}
+    	if($result->items[$key]['Student SR No'] != '') {
+    		$studentQuery = db_select('users');
+				$studentQuery->leftJoin('field_data_field_student_registration_id', 'srid', 'users.uid = srid.entity_id');
+				$studentQuery->leftJoin('field_data_field_class', 'class', 'users.uid = class.entity_id');
+				$studentQuery->fields('users', array('uid', 'name'))
+					->condition('srid.field_student_registration_id_value', $result->items[$key]['Student SR No'], '=')
+					->condition('class.field_class_target_id', $result->items[$key]['Class'], '=');
+				
+				
+				$studentRowCounts = $studentQuery->execute()->rowCount();
+
+    		if(!($studentRowCounts > 0)) {
+    			drupal_set_message('Student SR No at row ' . ($key + 2) . ' doesn\'t exist. Progress data can\'t be imported.', 'warning');
+    			unset($result->items[$key]); continue;
+    		}
+    		else {
+    			$studentresults = $studentQuery->execute()->fetchAll(); //->rowCount();
+    			$result->items[$key]['Student SR No'] = $studentresults[0]->uid;
+    		}
+    	}
+    	
+    	if($result->items[$key]['Exam'] == '') {
+    		drupal_set_message('Exam at row ' . ($key + 2) . ' is blank. Progress data can\'t be imported.', 'warning');
+    		unset($result->items[$key]); continue;
+    	}
+    	if($result->items[$key]['Exam'] != '') {
+			$examQuery = db_select('node')
+				->fields('node', array('nid', 'title'))
+				->condition('uid', $user->uid, '=')
+				->condition('type', 'examination', '=')
+				->condition('title', $result->items[$key]['Exam'], '=');
+				
+				$examRowCounts = $examQuery->execute()->rowCount();
+				
+    		if(!($examRowCounts > 0)) {
+    			drupal_set_message('Exam at row ' . ($key + 2) . ' doesn\'t exist. Progress data can\'t be imported.', 'warning');
+    			unset($result->items[$key]); continue;
+    		}
+    		else{
+    			$examResult = $examQuery->execute()->fetchAll();
+    			$result->items[$key]['Exam'] = $examResult[0]->nid;
+    		}
+    	}
+    	if($result->items[$key]['Subject'] == '') {
+    		drupal_set_message('Subject at row ' . ($key + 2) . ' is blank. Progress data can\'t be imported.', 'warning');
+    		unset($result->items[$key]);
+    	}
+    	if($result->items[$key]['Subject'] != '') {
+			$subjectQuery = db_select('node')
+				->fields('node', array('nid', 'title'))
+				->condition('uid', $user->uid, '=')
+				->condition('type', 'subject', '=')
+				->condition('title', $result->items[$key]['Subject'], '=');
+				
+				$subjectRowCounts = $subjectQuery->execute()->rowCount();
+				
+    		if(!($subjectRowCounts > 0)) {
+    			drupal_set_message('Subject at row ' . ($key + 2) . ' doesn\'t exist. Progress data can\'t be imported.', 'warning');
+    			unset($result->items[$key]); continue;
+    		}
+    		else {
+    			$subjectResult = $subjectQuery->execute()->fetchAll();
+    			$result->items[$key]['Subject'] = $subjectResult[0]->nid;
+    		}
+    	}
+    	if(!is_numeric($result->items[$key]['Max Marks'])) {
+    		drupal_set_message('Max Marks at row ' . ($key + 2) . ' is not a number. Progress data can\'t be imported.', 'warning');
+    		unset($result->items[$key]); continue;
+    	}
+    	if(!is_numeric($result->items[$key]['Passing Marks'])) {
+    		drupal_set_message('Passing Marks at row ' . ($key + 2) . ' is not a number. Progress data can\'t be imported.', 'warning');
+    		unset($result->items[$key]); continue;
+    	}
+    	if(!is_numeric($result->items[$key]['Scored Marks'])) {
+    		drupal_set_message('Scored Marks at row ' . ($key + 2) . ' is not a number. Progress data can\'t be imported.', 'warning');
+    		unset($result->items[$key]); continue;
+    	}
+    	
+    	
+    	$adminSchoolId = _get_school_node_id_for_school_admin_user();
+    	$result->items[$key]['Author'] = $user->uid;
+    	$result->items[$key]['Title'] = $adminSchoolId['nid'] . '-' .
+    									'Progress data for ' . 
+    									$student_SR_number . '-' .  
+    									$classResult[0]->title . '-' . 
+    									$examResult[0]->title . '_' . 
+    									$subjectResult[0]->title;
+    	//pr($result->items[$key]['Title']); die('asdasdadsa');
+    }
+  }
+  
+    if($source->importer()->id == 'student_attendance_imported') {
+    	$feed_source_node = node_load($source->feed_nid);
+    	$attendance_date = $feed_source_node->field_attendance_status_date['und'][0]['value'];
+    	$attendance_status_allowed_value = array('A', 'P', 'FH', 'SH');
+    	foreach($result->items as $key => $row) {
+    	  $student_SR_number = $result->items[$key]['Student ID'];
+    		if(!in_array($result->items[$key]['Attendance Status'], $attendance_status_allowed_value)) {
+    			drupal_set_message('Attendance Status at row ' . ($key + 2) . ' is not a valid status. Allowed value are A = Absunt, P = Present, FH = First Half Present, SF = Second Half Present. Progress data can\'t be imported.', 'warning');
+    			unset($result->items[$key]); continue;
+    		}
+    		if($result->items[$key]['Student ID'] == '') {
+    			drupal_set_message('Student ID at row ' . ($key + 2) . ' is blank. Progress data can\'t be imported.', 'warning');
+    			unset($result->items[$key]); continue;
+    		}
+    		if($result->items[$key]['Student ID'] != '') {
+    			$studentQuery = db_select('users');
+    			$studentQuery->leftJoin('field_data_field_student_registration_id', 'srid', 'users.uid = srid.entity_id');
+    			$studentQuery->fields('users', array('uid', 'name'))
+    			->condition('srid.field_student_registration_id_value', $result->items[$key]['Student ID'], '=');
+    			$studentRowCounts = $studentQuery->execute()->rowCount();
+    			if(!($studentRowCounts > 0)) {
+    				drupal_set_message('Student ID at row ' . ($key + 2) . ' doesn\'t exist. Progress data can\'t be imported.', 'warning');
+    				unset($result->items[$key]); continue;
+    			}
+    			else {
+    				$studentresults = $studentQuery->execute()->fetchAll();
+    				$result->items[$key]['Student ID'] = $studentresults[0]->uid;
+    			}
+    		}
+    		$result->items[$key]['Date'] = $attendance_date;
+    		$result->items[$key]['Title'] = 'Attendance for ' . $student_SR_number;
+    	}
+    }
+}
+
+
+function schoolknot_feeds_presave(FeedsSource $source, $entity, $item) {
+	global $user;
+	if($source->importer()->id == 'homework_importer_feeds') {
+		// Load the library.
+		if(function_exists('libraries_get_path')){
+		$path = libraries_get_path('PHPExcel');
+		$path = "$path/PHPExcel/IOFactory.php";
+		}else{
+		$path = drupal_get_path('module', 'feeds_xls') . '/PHPExcel/PHPExcel/IOFactory.php';
+		}
+		require_once $path;
+		date_default_timezone_set(drupal_get_user_timezone());
+		// Create new PHPExcel object
+		$objPHPExcel = new PHPExcel();
+
+		$date = PHPExcel_Shared_Date::ExcelToPHPObject($item['Date']);
+		//format the date as you want.
+		$formatedDate = $date->format('Y-m-d H:i:s');
+
+		$user_groups = og_get_groups_by_user();
+		$user_school = reset($user_groups['node']);
+
+
+		$class_query = db_select('node', 'n');
+		$class_query
+		->condition('n.uid', $user->uid, '=')
+		->condition('n.title', $item['Class'], '=')
+		->fields('n', array('nid', 'title'));
+		$result = $class_query->execute()->fetchAssoc();
+
+		$entity->field_class[$entity->language][0]['target_id'] = $result['nid'];
+		$entity->field_school_id[$entity->language][0]['target_id'] = $user_school;
+		$entity->field_homework_date[$entity->language][0] = array('value' => $formatedDate);
+		$entity->uid = $user->uid;
+		//pr($entity); die('asdasd');
+		
+	}
+  
+	if($source->importer()->id == 'students_bulk_upload_feeds_xls') {
+	  
+		// Date of Birth
+		$entity->field_student_date_of_birth['und'][0]['value'] = $item['DoB'];
+		$entity->field_class['und'][0]['target_id'] = $item['Class'];
+    $entity->og_user_node['und'][0]['target_id'] = $item['School'];
+    $entity->field_password_status['und'][0]['value'] = 'email_not_verified';
+
+    $entity->pass = $item['Password'];
+		$entity->status = 1;
+		$entity->timezone = 'UTC';
+		
+		// Mark as Active
+		$entity->field_schooladmin_blocked['und'][0]['value'] = 1;
+	}
+  if($source->importer()->id == 'teachers_bulk_upload_feeds_xls') {
+			// Date of Birth
+		$entity->field_student_date_of_birth['und'][0]['value'] = $item['DoB'];
+    $entity->og_user_node['und'][0]['target_id'] = $item['School'];
+    $entity->field_password_status['und'][0]['value'] = 'email_not_verified';
+
+    $entity->pass = $item['Password'];
+		$entity->status = 1;
+		$entity->timezone = 'UTC';
+		
+		// Mark as Active
+		$entity->field_schooladmin_blocked['und'][0]['value'] = 1;
+	}
+	
+	if($source->importer()->id == 'student_progress_data_feeds_xls_importer') {
+		$student_user_object = user_load($item['Student SR No']);
+		$entity->title = $item['Title'];
+		$entity->field_student[$entity->language]['0']['target_id'] = $student_user_object->uid;
+		$entity->field_class[$entity->language]['0']['target_id'] = $item['Class'];
+		$entity->field_subject[$entity->language]['0']['target_id'] = $item['Subject'];
+		$entity->field_exam[$entity->language]['0']['target_id'] = $item['Exam'];
+	}
+	if($source->importer()->id == 'student_attendance_imported') {
+	  
+	  $student_user_object = user_load($item['Student ID']);
+		
+  	$node = array();
+  	$query = new EntityFieldQuery();
+  	$query->entityCondition('entity_type', 'node');
+  	$query->entityCondition('bundle', 'student_attendance');
+  	$query->propertyCondition('status', 1);
+  	$query->fieldCondition('field_student','target_id', $student_user_object->uid,'=');
+  	$query->range(0, 1);
+  	$result = $query->execute();
+  	
+  	if (isset($result['node'])) {
+  		$nids = array_keys($result['node']);
+  		$node = entity_load('node', $nids);
+    	$entity = $node[$nids[0]];
+    	$entity->field_student[$entity->language]['0']['target_id'] = $student_user_object->uid;
+  		switch($item['Attendance Status']) {
+  		  case 'P':
+  		    array_push($entity->field_present_dates[$entity->language], array('value' => $item['Date']));
+  		    break;
+  		  case 'A':
+  		    array_push($entity->field_absent_dates[$entity->language], array('value' => $item['Date']));
+  		    break;
+  		  case 'FH':
+  		    array_push($entity->field_first_half_dates[$entity->language], array('value' => $item['Date']));
+  		    break;
+  		  case 'SH':
+  		    array_push($entity->field_second_half_dates[$entity->language], array('value' => $item['Date']));
+  		    break;
+  		}
+  	}
+  	else {
+  	  $entity->field_student[$entity->language]['0']['target_id'] = $student_user_object->uid;
+  	  switch($item['Attendance Status']) {
+  		  case 'P':
+  		    $entity->field_present_dates[$entity->language][0]['value'] = $item['Date'];
+  		    break;
+  		  case 'A':
+  		    $entity->field_absent_dates[$entity->language][0]['value'] = $item['Date'];
+  		    break;
+  		  case 'FH':
+  		    $entity->field_first_half_dates[$entity->language][0]['value'] = $item['Date'];
+  		    break;
+  		  case 'SH':
+  		    $entity->field_second_half_dates[$entity->language][0]['value'] = $item['Date'];
+  		    break;
+  		}
+  	}
+	}
+	
+}
+
+
+function schoolknot_user_insert(&$edit, $account, $category) {
+  if(isset($edit['feeds_item']->id) && $edit['feeds_item']->id = 'students_bulk_upload_feeds_xls') {
+    $user_groups = og_get_groups_by_user();
+		$user_school = reset($user_groups['node']);
+    og_role_grant('node', $user_school, $account->uid, 2);
+  }
+	if(isset($edit['feeds_item']->id) && $edit['feeds_item']->id = 'teachers_bulk_upload_feeds_xls') {
+    $user_groups = og_get_groups_by_user();
+		$user_school = reset($user_groups['node']);
+    og_role_grant('node', $user_school, $account->uid, 2);
+  }
+}
+
+function schoolknot_feeds_before_import(FeedsSource $source) {
+  //pr($source); die('Die in new node');
+}
+
+
+
+function hide_create_school_check() {
+	global $user;
+	
+	if($user->uid == 0 || !in_array('School Administrator', $user->roles)) {
+		return false; 
+	}
+	$class_query = db_select('node', 'n');
+	$class_query
+	->condition('n.uid', $user->uid, '=')
+	->condition('n.type', 'school', '=')
+	->fields('n', array('nid', 'title'));
+	$result = $class_query->execute()->rowCount();
+	
+	if($result > 0) {
+		return false;
+	}
+	else {
+		return true;
+	}
+}
+
+function hide_user_navigation() {
+	global $user;
+
+	if(hide_create_school_check()) 
+		return false;
+		
+	$class_query = db_select('node', 'n');
+	$class_query
+	->condition('n.uid', $user->uid, '=')
+	->condition('n.type', 'school', '=')
+	->fields('n', array('nid', 'title'));
+	$result = $class_query->execute()->rowCount();
+	
+	if($result > 0) {
+		return true;
+	}
+	else {
+		return false;
+	}
+}
+
+/*
+ * implement HOOK_node_submit
+ */
+function schoolknot_node_submit($node, $form, &$form_state) {
+  global $user;
+  $user_groups = og_get_groups_by_user();
+  $user_school = reset($user_groups['node']);
+  
+  if($node->type == 'homework' || $node->type == 'holiday') {
+    $node->field_school_id[$node->language][0]['target_id'] = $user_school;
+  }
+  if($node->type == 'school_events'){
+    $node->og_group_ref[$node->language][0]['target_id'] = $user_school;
+  }
+  
+  /*
+  // Redirect to Listing page for School Admin 
+  $form_id = $form_state['input']['form_id'];
+  switch($form_id) {
+  	case 'subject_node_form' :
+  		$form_state['redirect'] = 'saclp/subjects';
+		$form_state['rebuild'] = TRUE;
+		break;
+  	
+  }
+  */
+}
+
+function schoolknot_node_insert($node){
+	if($node->type == 'poll') {
+  	$duration =($node->runtime)/60/60/24;
+  	$subject = 'Poll Notification';
+  	//$content = 'Dear Parent, Your School has lunched poll for '.$duration.' days request you to participate';
+		$message = 'Dear Parent,' . "\n";
+		$message .= 'Your School has lunched poll for '.$duration.' days request you to participate' . "\n";
+	  $message .= 'You may access school poll from below link.' . "\n";
+	  $message .= l('School poll', 'node/'.$node->nid) . "\n";
+		$message .= '' . "\n";
+	  $message .= 'Thanks,' . "\n";
+	  $message .= 'Team SchoolKnot  ' . "\n";
+  	$school_id = _get_school_node_id_for_school_admin_user();
+    $parents_for_school = _get_all_parents_for_school($school_id['nid']);
+    $parent_ids = array();
+    foreach($parents_for_school as $parent_id => $parent) {
+      array_push($parent_ids, $parent_id);
+    }
+    $recipients = user_load_multiple($parent_ids);
+    $recipient_type = 3;
+  	 _send_private_message($recipients, $subject, $message, $recipient_type);
+  }
+	if($node->type == 'homework_not in use') {
+		$school_id = _get_school_node_id_for_school_admin_user();
+		$subject = 'HomeWork Notification';
+		$homework_des = $node->body['und'][0]['value'];
+		$homework_date = date('F j, Y', strtotime($node->field_homework_date['und'][0]['value']));
+  	//$content = 'Dear Parent, Your School has lunched poll for '.$duration.' days request you to participate';
+		$message = 'Dear Parent,' . "\n";
+		$message .= 'Your School has created HomeWork on  '.$homework_date.' day' . "\n";
+	  $message .= '<b>HomeWork details are below: </b>';
+		$message .= '' . "\n";
+		$message .= $homework_des;
+		$message .= '' . "\n";
+		$message .= 'Please click below for Home work history' . "\n";
+    $message .= l('HomeWork History', 'school-homework/'.$school_id['nid']) . "\n";
+	  $message .= 'Thanks,' . "\n";
+	  $message .= 'Team SchoolKnot  ' . "\n";
+		$class_id = $node->field_class['und'][0]['target_id'];
+		
+  	//print $school_id = _get_school_node_id_for_school_admin_user();
+    $parents_for_class = _get_all_parents_for_class($class_id);
+		
+    $parent_ids = array();
+    foreach($parents_for_class as $parent_id => $parent) {
+      array_push($parent_ids, $parent_id);
+    }
+    $recipients = user_load_multiple($parent_ids);
+    $recipient_type = 3;
+  	 _send_private_message($recipients, $subject, $message, $recipient_type);
+	}
+	if($node->type == 'school_events') {
+    $school_id = _get_school_node_id_for_school_admin_user();
+    $node->og_group_ref[$node->language][0]['target_id'] = $school_id['nid'];
+    
+    $parents_list = _get_all_parents_for_school($school_id['nid']);
+    $parent_ids = array();
+    foreach($parents_list as $parent) {
+      $parent_ids[] = $parent->uid;
+    }
+    $suject = 'School Created "' . $node->title . '" Event';
+    $message = 'Dear Parent,' . "\n";
+    $message .= 'An event was created by school of your child.' . "\n";
+    $message .= $node->title . "\n";
+    $message .= $node->body[$node->language][0]['value'] . "\n\n";
+    
+    $message .= 'Please click below link for more detail' . "\n";
+    $message .= l('School Event', 'node/'.$node->nid) . "\n";
+    $users = user_load_multiple($parent_ids);
+    privatemsg_new_thread($users, $suject, $message);
+  }
+  if($node->type == 'holiday') {
+    $school_id = _get_school_node_id_for_school_admin_user();
+    $node->og_group_ref[$node->language][0]['target_id'] = $school_id['nid'];
+    
+    $parents_list = _get_all_parents_for_school($school_id['nid']);
+    $parent_ids = array();
+    foreach($parents_list as $parent) {
+      $parent_ids[] = $parent->uid;
+    }
+    $suject = 'School Declared a Holiday';
+    $message = 'Dear Parent,' . "\n";
+    $message .= 'A Holiday was Declared by school of your child.' . "\n";
+    $message .= $node->title . "\n";
+    $message .= $node->body[$node->language][0]['value'] . "\n";
+    ;
+    $message .= "From " . date('F j, Y', strtotime($node->field_holiday_day['und'][0]['value'])) . " to " . date('F j, Y', strtotime($node->field_holiday_day['und'][0]['value2'])) . "\n\n";
+    $message .= 'Please click below link for list of holidays' . "\n";
+    $message .= l('School Holiday', 'school-holidays/'.$school_id['nid']) . "\n";
+    $users = user_load_multiple($parent_ids);
+    privatemsg_new_thread($users, $suject, $message);
+  }
+  if($node->type == 'homework') {
+    $school_id = _get_school_node_id_for_school_admin_user();
+    $node->og_group_ref[$node->language][0]['target_id'] = $school_id['nid'];
+    
+    $class_id = $node->field_class[$node->language][0]['target_id'];
+    $parents_list = _get_all_parents_for_class($class_id);
+    
+    $parent_ids = array();
+    foreach($parents_list as $parent) {
+      $parent_ids[] = $parent->uid;
+    }
+    $suject = 'Homework assigned for ' . _get_datefield_value_from_dob($node->field_homework_date[$node->language][0]['value']);
+    $message = 'Dear Parent,' . "\n";
+    $message .= 'Please find homework for ' . _get_datefield_value_from_dob($node->field_homework_date[$node->language][0]['value']) . ' of your child' . "\n";
+    $message .= $node->title . "\n";
+    $message .= $node->body[$node->language][0]['value'] . "\n";
+    
+    $users = user_load_multiple($parent_ids);
+
+    _send_private_message($users, $suject, $message);
+  }
+  if($node->type == 'examination') {
+    $school_id = _get_school_node_id_for_school_admin_user();
+    $node->og_group_ref[$node->language][0]['target_id'] = $school_id['nid'];
+    
+    $parents_list = _get_all_parents_for_school($school_id['nid']);
+    $parent_ids = array();
+    foreach($parents_list as $parent) {
+      $parent_ids[] = $parent->uid;
+    }
+    $suject = $node->title .' Scheduled';
+    $message = 'Dear Parent,' . "\n";
+    $message .= 'Exams has been scheduled by school of your child.' . "\n";
+    //$message .= $node->title . "\n";
+    $message .= "From " . date('F j, Y', strtotime($node->field_exam_schedule['und'][0]['value'])) . " to " . date('F j, Y', strtotime($node->field_exam_schedule['und'][0]['value2'])) . "\n\n";
+    //$message .= 'Please click below link for list of Exams' . "\n";
+    //$message .= l('School Exams', 'school-holidays/'.$school_id['nid']) . "\n";
+    $users = user_load_multiple($parent_ids);
+    _send_private_message($users, $suject, $message);
+  }
+}
+
+function _get_school_node_id_for_school_admin() {
+  global $user;
+  $user_school_id = og_get_groups_by_user($user, 'node');
+  $result = db_select('node')
+    ->fields('node', array('nid', 'title'))
+    ->condition('nid', $user_school_id, 'IN')
+    ->condition('type', 'school', '=')
+    ->range(0, 10)
+    ->execute()->fetchAssoc();
+  return $result;
+}
+
+function _get_school_node_id_for_school_admin_user($author_id = 0) {
+  if($author_id == 0) {
+    global $user;
+  }
+  else {
+    $user = user_load($author_id);
+  }
+  if(!is_object($user)) return;  
+  $user_school_id = og_get_groups_by_user($user, 'node');
+  if($user_school_id == '') return;
+  $result = db_select('node')
+    ->fields('node', array('nid', 'title'))
+    ->condition('nid', $user_school_id, 'IN')
+    ->condition('type', 'school', '=')
+    ->range(0, 10)
+    ->execute()->fetchAssoc();
+  return $result;
+}
+
+function _get_all_group_member_ids($group_id) {
+  global $user;
+  $query = db_select('users', 'u');
+    $query->leftJoin('og_membership', 'ogm', 'u.uid = ogm.etid');
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->condition('ogm.gid', $group_id, '=')
+      ->condition('u.status', '1', '=');
+      $result = $query->execute();
+    foreach ($result as $student) {
+      //pr($student);
+    }
+}
+
+function _get_all_parents_for_school($school_id) {
+  global $user;
+  $query = db_select('users', 'u');
+    $query->leftJoin('og_membership', 'ogm', 'u.uid = ogm.etid');
+    $query->leftJoin('users_roles', 'ur', 'u.uid = ur.uid');
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->condition('ogm.gid', $school_id, '=')
+      ->condition('ur.rid', '5', '=')
+      ->condition('u.status', '1', '=');
+      $result = $query->execute();
+      
+     $return  = array();
+    foreach ($result as $student) {
+     $return[$student->uid] = $student;
+    }
+  return $return;
+}
+
+function _get_all_teachers_for_school($school_id) {
+  global $user;
+  $query = db_select('users', 'u');
+    $query->leftJoin('og_membership', 'ogm', 'u.uid = ogm.etid');
+    $query->leftJoin('users_roles', 'ur', 'u.uid = ur.uid');
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->condition('ogm.gid', $school_id, '=')
+      ->condition('ur.rid', '6', '=')
+      ->condition('u.status', '1', '=');
+      $result = $query->execute();
+      
+     $return  = array();
+    foreach ($result as $student) {
+     $return[$student->uid] = $student;
+    }
+  return $return;
+}
+
+function _get_all_active_parents_for_school($school_id) {
+  global $user;
+  $query = db_select('users', 'u');
+    $query->leftJoin('og_membership', 'ogm', 'u.uid = ogm.etid');
+    $query->leftJoin('users_roles', 'ur', 'u.uid = ur.uid');
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->condition('ogm.gid', $school_id, '=')
+      ->condition('ur.rid', '5', '=')
+      ->condition('u.status', '1', '=')
+      ->condition('u.access', '0', '!=');
+      $result = $query->execute();
+      
+     $return  = array();
+    foreach ($result as $student) {
+     $return[$student->uid] = $student;
+    }
+  return $return;
+}
+
+function _get_all_parents_for_class($class_id) {
+  global $user;
+  $query = db_select('users', 'u');
+    $query->leftJoin('users_roles', 'ur', 'u.uid = ur.uid');
+    $query->leftJoin('field_data_field_class', 'class', 'u.uid = class.entity_id');
+    $query
+      ->fields('u', array('uid', 'name'))
+      ->condition('ur.rid', '5', '=')
+      ->condition('class.field_class_target_id', $class_id, '=')
+      ->condition('class.bundle', 'user', '=')
+      ->condition('u.status', '1', '=');
+      $result = $query->execute();
+      
+     $return  = array();
+    foreach ($result as $student) {
+     $return[$student->uid] = $student;
+    }
+  return $return;
+}
+
+function _logged_in_as_block() {
+  global $user;
+
+  $result = array('as' => 'anonymous user');
+  if($user->uid == 0) return $result;
+  
+  $user = user_load($user->uid);
+  if(in_array('School Administrator', $user->roles)) {
+    $result['as'] = 'School Administrator';
+  }
+  if(in_array('Parent', $user->roles)) {
+    $result['as'] = 'Parent';
+  }
+  if(in_array('Teacher', $user->roles)) {
+  	$result['as'] = 'Teacher';
+  }
+  
+  // School
+  $school = _get_school_node_id_for_school_admin_user($user->uid);
+  $result['school'] = $school;
+  $result['user'] = $user;
+  return $result;
+}
+
+
+function _user_full_name_by_user_obj($user) {
+  $name = '';
+  $user = user_load($user->uid);
+  if(isset($user->field_student_first_name['und'])) {
+    $name = $user->field_student_first_name['und'][0]['value'];
+  }
+  if(isset($user->field_student_middle_name['und'])) {
+    $name.= ' '. $user->field_student_middle_name['und'][0]['value'];
+  }
+  if(isset($user->field_student_last_name['und'])) {
+    $name .= ' '. $user->field_student_last_name['und'][0]['value'];
+  }
+  $name = ($name == '') ? $user->name : $name;
+  return $name;
+}
+
+
+/* Sent Notification on Event Creation */
+function schoolknot_node_presave($node) {
+  //pr($node); die;
+}
+
+/*
+ * implement HOOK_node_form_alter
+ */
+function schoolknot_form_alter (&$form, &$form_state, $form_id) {
+	switch($form_id) {
+		
+	  	case 'subject_node_form' :
+	  	case 'classes_node_form' :
+	  	case 'examination_node_form' :
+	  	case 'homework_node_form' :
+	  	case 'students_bulk_upload_importer_node_form' :
+	  	case 'students_progress_bulk_upload_im_node_form' :
+		case 'holiday_node_form' :
+	  		$form['actions']['submit']['#submit'][] = 'school_admin_add_content_redirect_' . $form_id;
+			break;
+			case 'poll_node_form' :
+				if(!isset($form['nid']['#value'])){
+					$form['choice_wrapper']['choice']['new:0']['chtext']['#default_value'] = 'Agree';
+					$form['choice_wrapper']['choice']['new:1']['chtext']['#default_value'] = 'DisAgree';
+				}
+			break;
+			// case 'user_register_form':
+				// $form['#validate'][] = 'schoolknot_user_register_form_validate';
+			// break;
+			case 'node_delete_confirm':
+				$form['description'] = array('#value' => "Are you sure you want to delete?");
+			break;
+			case 'teacher_bulk_upload_importer_node_form':
+				$form['actions']['submit']['#value'] = "upload and save data";
+			break;
+			case 'classbellsu_status_comment_form' :
+				$form['comment_text']['#prefix'] .= "<div><p>Allowed to accept only 500 characters per comment.</p></div>";
+			break;
+			//case 'user_pass' :
+				//$form['#submit'][] = 'my_module_profile_form_submit';
+			//break;	
+			// case 'user_profile_form' :
+				// unset($form['account']['name']);
+				// unset($form['account']['mail']);
+				// unset($form['og_user_node']);
+				// unset($form['field_class']);
+				// unset($form['field_agreement_status']);
+			// break;
+			
+	  }
+	  if(($form_id == 'students_bulk_upload_importer_node_form')||($form_id =='students_progress_bulk_upload_im_node_form')){
+	  	$form['actions']['submit']['#value'] = "upload and save data";
+	  }
+		if($form_id == 'user_pass') {
+			$form['#submit'][] = 'schoolknot_profile_form_submit';
+		}
+
+		
+}
+function schoolknot_profile_form_submit($form, &$form_state) {
+  $form_state['redirect'] = '<front>';
+}
+// function schoolknot_user_register_form_validate($form, &$form_state) {
+	// if($form_state['values']['pass']){
+		// if (!preg_match('/^.*(?=.{6,}).*$/', $form_state['values']['pass'])) {
+			// form_set_error('pass', t('Your Password must be at least 6 characters.'));
+		// }
+	// }
+// }
+
+function school_admin_add_content_redirect_subject_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'saclp/subjects';
+}
+function school_admin_add_content_redirect_classes_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'saclp/classes';
+}
+function school_admin_add_content_redirect_examination_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'saclp/exams';
+}
+function school_admin_add_content_redirect_homework_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'saclp/homeworks';
+}
+function school_admin_add_content_redirect_students_bulk_upload_importer_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'bulk-upload-parser/students';
+}
+function school_admin_add_content_redirect_students_progress_bulk_upload_im_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'bulk-upload-parser/progress-sheet';
+}
+function school_admin_add_content_redirect_holiday_node_form($form, &$form_state) {
+	$form_state['redirect'] = 'list-of-holidays';
+}
+
+
+/*
+ * Calculate average rating for school and return in number
+ */
+function _get_school_rating($school_id) {
+  global $user;
+  $query = db_select('node', 'n');
+    $query->leftJoin('field_data_field_school_id', 'sid', 'n.nid = sid.entity_id');
+    $query->leftJoin('field_data_field_average_of_rating', 'avg_rating', 'n.nid = avg_rating.entity_id');
+    $query
+      ->fields('avg_rating', array('field_average_of_rating_value'))
+      ->condition('n.type', 'rate_answers', '=')
+      ->condition('sid.field_school_id_target_id', $school_id, '=');
+      $result = $query->execute();
+      
+     $ratings  = array();
+     
+    foreach ($result as $avg_rating) {
+    	$ratings[] = average_specific_formating($avg_rating->field_average_of_rating_value);
+    }
+    if(count($ratings) == 0) {
+    	$average = 0;
+    }
+	else {
+		$average = array_sum($ratings) / count($ratings);
+	}
+	return $average;
+}
+
+function average_specific_formating($float) {
+	$point_part = number_format($float - floor($float), 2);
+	if($point_part < 0.25) {
+		$return = floor($float);
+	}
+	else if($point_part > 0.25 && $point_part < 0.75) {
+		$return = floor($float) + 0.5;
+	}
+	else {
+		$return = ceil($float);
+	}
+	return $return;
+}
+
+
+function schoolknot_user_login(&$edit, $account) {
+	global $user;
+	
+	if(hide_create_school_check()) {
+		//drupal_set_message(t('You have not created school. Please create school to access other features of schoolknot.com.'), 'warning');
+		$_GET['destination'] = 'schoolknot/reset/password';
+	}
+	
+	if($user->uid != 0 || in_array('Parent', $user->roles)) {
+		//$_GET['destination'] = 'student-tracker/progress-sheet';
+	}
+
+}
+
+
+/**
+ * Implements hook_permission().
+ */
+function schoolknot_permission() {
+  return array(
+    'access school research' => array(
+      'title' => t('Access School Research'),
+    ),
+  );
+}
+function schoolknot_menu() {
+	$items['school-research'] = array(
+		'title' => 'Schools Research',
+		'page callback' => 'school_research',
+		'access arguments' => array('access school research'),
+	);
+	
+	return $items;
+}
+
+function school_research() {
+	
+	$most_rated = _get_most_rated_school();
+	$most_active = _get_most_active_school();
+	$most_member = _get_most_memeber_school();
+	$parent_ratio = _get_teacher_parent_ratio_school();
+	$data = array('most_rated' => $most_rated, 'most_active' => $most_active, 'most_member' => $most_member, 'teacher_parent' => $parent_ratio);
+	
+	return theme('schoolknot_school_research', array('data' => $data));
+}
+
+
+function _get_most_rated_school() {
+	
+	$query = db_select('node', 'n');
+	
+	$query->leftJoin('field_data_field_average_of_rating', 'rating', 'rating.entity_id = n.nid');
+	$query->leftJoin('field_data_field_school_id', 'school', 'school.entity_id = n.nid');
+	$query->leftJoin('node', 'school_details', 'school_details.nid = school.field_school_id_target_id');
+	
+	$query
+		->fields('n', array('nid'))
+		->fields('school', array('field_school_id_target_id'))
+		->fields('school_details', array('title'))
+		->condition('n.type', 'rate_answers', '=')
+		->isNotNull('school.field_school_id_target_id')
+		->groupBy('school.field_school_id_target_id')
+		->orderBy('rating', 'DESC')
+		->range(0,5)
+		->addExpression('avg(rating.field_average_of_rating_value)', 'rating');
+	
+	$result = $query->execute()->fetchAll();
+	return $result;
+}
+
+function _get_most_active_school() {
+	
+	$query = db_select('node', 'n');
+	
+	$query->leftJoin('users', 'u', 'n.uid = u.uid');
+	$query->leftJoin('node', 'schools', 'schools.uid = u.uid');
+	
+	$query
+		->fields('n', array('nid'))
+		->fields('schools', array('title', 'nid'))
+		->condition('n.type', 'classbell_status_update', '=')
+		->condition('schools.type', 'school', '=')
+		->groupBy('n.uid')
+		->orderBy('total_post', 'DESC')
+		->range(0,5)
+		->addExpression('COUNT(*)', 'total_post');
+	$result = $query->execute()->fetchAll();
+	return $result;
+}
+
+
+function _get_most_memeber_school() {
+	
+	$query = db_select('og_membership', 'ogmem');
+	
+	$query->leftJoin('node', 'school', 'school.nid = ogmem.gid');
+	
+	$query
+		->fields('ogmem', array('gid'))
+		->fields('school', array('title', 'nid'))
+		->condition('ogmem.type', 'og_membership_type_default', '=')
+		->groupBy('ogmem.gid')
+		->orderBy('total_memebers', 'DESC')
+		->range(0,5)
+		->addExpression('COUNT(*)', 'total_memebers');
+	
+	$result = $query->execute()->fetchAll();
+	return $result;
+}
+
+function _get_teacher_parent_ratio_school() {
+	
+	$query = db_select('field_data_field_student_teacher_ratio', 'stration');
+	
+	$query->leftJoin('node', 'school', 'school.nid = stration.entity_id');
+	
+	$query
+		->fields('stration', array('field_student_teacher_ratio_value'))
+		->fields('school', array('title', 'nid'))
+		->orderBy('stration.field_student_teacher_ratio_value', 'DESC')
+		->range(0,5);
+	
+	$result = $query->execute()->fetchAll();
+	return $result;
+}
+
+function schoolknot_theme() {
+  $module_path = drupal_get_path('module', 'schoolknot');
+  $base = array(
+    'path' => $module_path . '/theme',
+  );
+  return array(
+    'schoolknot_school_research' => $base + array(
+      'template' => 'schoolknot_school_research',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),   
+  );
+}
+
+function _get_download_timetable() {
+		global $user;
+
+		$class_id = $user->field_class['und'][0]['target_id'];
+		$node_class = node_load($class_id);
+		$image_fid = $node_class->field_time_table['und'][0]['fid'];
+    if($image_fid !=''){
+      return l('Class Timetable Download','download/file/fid/'.$image_fid);
+    }
+    else{ 
+      return NULL;
+    }	
+}
+
+/*
+function schoolknot_cron() {
+	$currentDate_start = date('Y-m-d 00:00:00', strtotime('2014-01-01 00:00:00'));
+	$currentDate_end = date('Y-m-d 23:59:59');
+	
+	
+	$query = db_select('node', 'n');
+	$query->leftJoin('field_data_field_event_date', 'eventdate', 'eventdate.entity_id = n.nid');
+    $query->fields('n', array('nid', 'title'))
+    	->fields('eventdate', array('field_event_date_value', 'field_event_date_value2'))
+    	->condition('type', 'school_events', '=')
+    	->condition('eventdate.field_event_date_value', array($currentDate_start, $currentDate_end), 'BETWEEN');
+    
+    $result = $query->execute()->fetchAll();
+    
+    pr($result);
+
+}
+*/

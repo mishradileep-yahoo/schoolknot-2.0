@@ -1,0 +1,8 @@
+name = Student Tracker
+description = Student tracker and data representation in Graph, Charts and Tabular format.
+core = 7.x
+package = SchoolKnot
+version = "7.x-1.0"
+core = "7.x"
+project = "SchoolKnot"
+datestamp = "1342428970"

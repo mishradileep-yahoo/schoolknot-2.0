@@ -1,0 +1,10 @@
+name = schoolmessages
+description = Allows Schools admins to Create a schoolmessages
+package = SchoolKnot
+core = 7.x
+
+; Information added by drupal.org packaging script on 2012-02-14
+version = "7.x-1.0"
+core = "7.x"
+project = "SchoolKnot"
+datestamp = "1381494079"

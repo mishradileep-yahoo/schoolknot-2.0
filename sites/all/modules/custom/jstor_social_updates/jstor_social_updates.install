@@ -1,0 +1,32 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the jstor social updates module.
+ */
+ 
+/**
+ * Implements hook_install().
+ */
+function jstor_social_updates_install() {
+  // Set some default variables necessary for the module to perform.
+  variable_set('jstor_social_updates_total', '3');
+  variable_set('jstor_social_updates_facebook_page_link', 'http://www.facebook.com/JstorMarketing');
+  variable_set('jstor_social_updates_no_facebook_updates', '3');
+  variable_set('jstor_social_updates_facebook_app_id', '303538389744535');
+  variable_set('jstor_social_updates_facebook_app_secret_id', '9a9ad1434ae689a5dc166e48b3b082ca');
+  variable_set('jstor_social_updates_facebook_id', '333902196698558');
+  variable_set('jstor_social_updates_twitter_page_link', 'http://www.yoursite.com');
+  variable_set('jstor_social_updates_no_twitter_updates', '3');
+  variable_set('jstor_social_updates_twitter_user_id', '814641');
+}
+ 
+/**
+ * Implements hook_uninstall().
+ */
+function jstor_social_updates_uninstall() {
+  // Delete all the Jstor social media variables
+  db_query("DELETE FROM {variable} WHERE name LIKE 'jstor_social_updates_%'");
+  // Clear the variable cache
+  cache_clear_all('variables', 'cache');
+}

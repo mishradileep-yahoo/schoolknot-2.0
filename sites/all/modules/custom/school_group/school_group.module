@@ -1,0 +1,502 @@
+<?php
+/**
+ * @file
+ * Code for the School Group feature.
+ */
+
+include_once 'school_group.features.inc';
+
+/**
+ * Implements hook_permission().
+ */
+function school_group_permission () {
+  return array(
+      'Invite school' => array(
+          'title' => t('Invite school to join group'),
+          'description' => t('Invite school to join group.')
+      )
+  );
+}
+
+/** 
+ * Implementing Hook_menu
+ */
+function school_group_menu(){
+  $items = array();
+  $items['school_group/%/invite'] = array(
+  	'title' => 'Invite schools',
+    'description' => 'Invite schools',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('school_group_invite', 1),
+    'access arguments' => array('Invite school'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['school_group/school_autocomplete/%'] = array(
+  	'title' => 'School name autocomplete',
+    'description' => 'School name autocomplete',
+  	'page callback' => 'school_group_school_name_autocomplete',
+    'page arguments' => array(2),
+  	'access arguments' 	=> array('Invite school'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  return $items;
+}
+
+function school_group_invite($form, &$form_state, $group_id) {
+  $form['invitee_school'] = array(
+		'#type' => 'textfield',
+		'#title' => t('School Name'), 
+		'#description' => t('Type school name and select desired school from options below.<br>Invited school will be added as member immediately.'),
+		'#autocomplete_path' => 'school_group/school_autocomplete/'.$group_id,
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Type school name')),
+	);
+	$form['group_id'] = array(
+		'#type' => 'hidden',
+		'#value' => $group_id,
+		
+	);
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Add School to Group'),
+	);
+		
+	return $form;
+}
+function school_group_invite_validate($form, &$form_state) {
+  $result = preg_match('/\(([0-9 ]+?)\)/', $form_state['values']['invitee_school'], $matches);
+  $form_state['values']['invitee_school'] = $matches[$result];
+}
+
+function school_group_invite_submit($form, &$form_state) {
+  $school = node_load($form_state['values']['invitee_school']);
+  $school_admin = user_load($school->uid);
+  $group_subscription = array(
+    'entity_type' => 'user',
+    'entity' => $school_admin
+  );
+  og_group('node', $form_state['values']['group_id'], $group_subscription);
+  drupal_set_message($school->title . ' added successfully to this group.');
+  drupal_goto('group-members/'.$form_state['values']['group_id']);
+}
+
+
+function school_group_school_name_autocomplete($group_id, $string = '') {
+	if ($string) {
+	  global $user;
+	  $group_members = _get_school_in_group($group_id);
+		$query = db_select('node', 'n');
+		$query->fields('n', array('title', 'nid'))
+			->condition('n.title', db_like($string) . '%', 'LIKE')
+			->condition('n.type', 'school', '=')
+			->condition('n.status', '1', '=')
+			->condition('n.nid', $group_members, 'NOT IN')
+			->range(0, 10);
+		$result = $query->execute();	
+		foreach ($result as $school) {
+			$matches[$school->title . '('.$school->nid.')'] = check_plain($school->title);
+		}
+	}
+	drupal_json_output($matches);
+}
+
+/**
+ * Get all school of a group
+ */
+function _get_school_in_group($gid) {
+  $query = db_select("og_membership", "ogm");
+  $query->leftJoin('users', 'u', 'ogm.etid = u.uid');
+  $query->leftJoin('node', 'n', 'n.uid = u.uid');
+  $query
+    ->fields('ogm', array('etid'))
+    ->fields('n', array('nid', 'title'))
+    ->condition('ogm.gid', $gid, '=')
+    ->condition('n.type', 'school', '=');
+  $result = $query->execute();
+  $schools = array();
+  foreach ($result as $school) {
+    $schools[] = $school->nid;
+  }
+  return $schools;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function school_group_theme() {
+  $module_path = drupal_get_path('module', 'school_group');
+  $base = array(
+    'path' => $module_path . '/templates',   
+  );
+  return array(
+    'school_group_status_update_form_all' => $base + array(
+      'template' => 'school-group-status-update-form-all',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),    
+  ); 
+}
+
+/**
+ * Implements hook_block_info().
+ * This hook declares what blocks are provided by the module.
+ */
+function school_group_block_info () {
+  $blocks['school_group_form'] = array(
+      'info' => t('Status update form'),
+  );
+  $blocks['school_group_image_form'] = array(
+      'info' => t('Status image update form'),
+  );
+  $blocks['school_group_youtube_form'] = array(
+      'info' => t('Status youtube update form'),
+  );
+  $blocks['school_group_comment_form'] = array(
+  		'info' => t('Status Comment Form'),
+  );
+  $blocks['school_group_complete_status_form'] = array(
+  		'info' => t('Complete Status Update Form'),
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ * This hook generates the contents of the blocks themselves.
+ */
+function school_group_block_view ($delta = '', $group_id = '') {
+  $block = array();
+  switch ($delta) {
+    case 'school_group_form':
+      $block['subject'] = t('Status Update');
+      $block['content'] = drupal_get_form('school_group_status_update_form');
+      break;
+    case 'school_group_image_form':
+      $block['subject'] = t('Image Status Update');
+      $block['content'] = drupal_get_form('school_group_image_update_form');
+      break;
+    case 'school_group_youtube_form':
+      $block['subject'] = t('Video Status Update');
+      $block['content'] = drupal_get_form('school_group_youtube_update_form');
+      break;
+    case 'school_group_comment_form':
+      	$block['subject'] = t('Status Comment Form');
+      	$block['content'] = drupal_get_form('school_group_status_comment_form', $group_id);
+      	break;
+    case 'school_group_complete_status_form':
+      	$block['content'] = school_group_complete_status_form($group_id);
+      	break;
+
+  }
+  return $block;
+}
+
+function school_group_status_update_form ($form, &$form_state, $nid = '') {
+  $text = '';
+  $provact_setting_default = '';
+  if(is_object($nid) && isset($nid->nid)) {
+  	$text = $nid->body[$nid->language][0]['value'];
+  	$provact_setting_default = $nid->group_content_access[$nid->language][0]['value'];
+  	$form['node_id'] = array(
+  		'#value' => $nid->nid,
+      '#type' => 'hidden',
+  );
+  }
+  $form['status_text'] = array(
+	'#type' => 'textarea',
+	'#attributes' => array('placeholder' => array('Share with the world')),
+	'#prefix' => '<div id="status_update_message" class="form-bg">',
+	'#suffix' => '</div>',
+  	'#default_value' => $text,
+  	'#resizable' => FALSE, 
+  	'#description' => 'Allowed to accept only 1000 characters per post.'
+  );
+  $form['group_id'] = array(
+  		'#value' => arg(1),
+      '#type' => 'hidden',
+  );
+  
+  $provact_setting_options = array('1' => 'Public - accessible to all site users', '2' => 'Private - accessible only to School Members', '3' => 'Protected - accessible only to Me');
+  $form['privacy_setting'] = array(
+  	  '#type' => 'select',
+      '#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+      '#suffix' => '</div>',
+      '#options' => $provact_setting_options,
+  	  '#default_value' => $provact_setting_default,
+  );
+  
+  $form['submit'] = array(
+	'#type' => 'submit',
+	'#value' => t('Post'),
+	'#attributes' => array('class' => array('btn')),
+	'#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+	'#suffix' => '</div>',
+  );
+  return $form;
+}
+
+function school_group_status_update_form_submit ($form, &$form_state) {
+  //pr($form_state['values']); die;
+  $status_text = $form_state['values']['status_text'];
+  if($status_text == '') {
+    form_set_error("status_text", "Please put some text.");
+  }
+  else {
+    
+    // Group data
+    $group_node = node_load($form_state['values']['group_id']);
+    
+    $body_text = $status_text;
+    
+    $node = new stdClass();
+    $node->type = 'school_group_status_update';
+    node_object_prepare($node);
+    
+    if(isset($form_state['values']['node_id']) && $form_state['values']['node_id'] != '') {
+    	$node->nid = $form_state['values']['node_id'];
+    }
+    
+    $node->title    = 'Group Update for - ' . $group_node->title . ' at ' . date('c');
+    $node->language = LANGUAGE_NONE;
+    
+    $node->body[$node->language][0]['value']   = $body_text;
+    $node->body[$node->language][0]['summary'] = text_summary($body_text);
+    $node->body[$node->language][0]['format']  = 'filtered_html';
+    
+    $node->og_group_ref[$node->language][0]['target_id'] = $form_state['values']['group_id'];
+    
+    $node->field_post_type[$node->language][0]['value'] = 'text';
+    if($form_state['values']['privacy_setting'] < 3) {
+    	$node->group_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+    }
+    else {
+    	$node->group_access[$node->language][0]['value'] = 2;
+    	$node->status = 0;
+    }
+
+    node_save($node);
+
+    drupal_set_message(t('Status updated successfully.'), 'status');
+  }
+}
+
+function school_group_image_update_form ($form, &$form_state, $nid = '') {
+  $form['status_image'] = array(
+    '#type' => 'file',
+    '#name' => 'files[]',
+    '#title' => t('Browse to the image folder on your computer and select multiple images to bulk upload'),
+    '#description' => t('You are allow to upload jpg, jpeg, png and gif, 10MB Max Size'),
+    '#attributes' => array('multiple' => 'multiple', 'class' => array('nicefileinput nice')),
+    '#prefix' => '<div id="status_update_message" class="form-bg">',
+    );
+  $form['status_text'] = array(
+    '#title' => t('Please name your image/album below.'),
+    '#type' => 'textfield',
+    '#attributes' => array('placeholder' => array('Title for image/album')),
+    '#suffix' => '</div>',
+  );
+  $form['group_id'] = array(
+  		'#value' => arg(1),
+      '#type' => 'hidden',
+  );
+  $provact_setting_options = array('1' => 'Public - accessible to all site users', '2' => 'Private - accessible only to School Members', '3' => 'Protected - accessible only to Me');
+      $form['privacy_setting'] = array(
+  		'#type' => 'select',
+      '#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+      '#suffix' => '</div>',
+      '#options' => $provact_setting_options,
+  );
+  
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Post'),
+    '#attributes' => array('class' => array('btn')),
+  	'#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+	'#suffix' => '</div>',
+  );
+  return $form;
+}
+
+function school_group_image_update_form_validate ($form, &$form_state, $nid = '') {
+//Save multiple files
+  $num_files = count($_FILES['files']['name']);
+  for ($i = 0; $i < $num_files; $i++) {
+  $file = file_save_upload($i, array(
+    'file_validate_is_image' => array(),
+    'file_validate_extensions' => array('png gif jpg jpeg'),
+    ));
+    if ($file) {
+      $file_directory_uri = 'public://group_status_posts/'.$form_state['values']['school_id'];
+      if(!file_prepare_directory($file_directory_uri)){
+        drupal_mkdir($file_directory_uri, '0777', TRUE);  
+      }
+      if ($file = file_move($file, $file_directory_uri)) {
+        $form_state['values']['file'][$i] = $file;
+      }
+      else {
+        form_set_error('file', t('Failed to write the uploaded file the site\'s file folder.'));
+      }
+    }
+    else {
+      form_set_error('file', t('No file was uploaded.'));
+    }
+  }
+}
+
+function school_group_image_update_form_submit ($form, &$form_state) {
+  $uploaded_files = array();
+  if (is_array($form_state['values']['file'])) {
+    foreach ($form_state['values']['file'] as $file) {
+      $uploaded_files[] = (array)file_load($file->fid);
+    }
+  }
+
+  $post_type = (count($uploaded_files) > 1) ? 'album' : 'image';
+
+
+  // Group data
+  $group_node = node_load($form_state['values']['group_id']);
+  
+  $status_text = $form_state['values']['status_text'];
+  
+  $node = new stdClass();
+  $node->type = 'school_group_status_update';
+  node_object_prepare($node);
+  
+  $node->title    = 'Group Image Update for - ' . $group_node->title . ' at ' . date('c');
+  $node->language = LANGUAGE_NONE;
+  
+  $node->body[$node->language][0]['value']   = $status_text;
+  $node->body[$node->language][0]['summary'] = text_summary($status_text);
+  $node->body[$node->language][0]['format']  = 'filtered_html';
+  
+  $node->field_status_image[$node->language] = $uploaded_files;
+  $node->og_group_ref[$node->language][0]['target_id'] = $form_state['values']['group_id'];
+  
+  $node->field_post_type[$node->language][0]['value'] = $post_type;
+  $node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+	if($form_state['values']['privacy_setting'] < 3) {
+    	$node->group_content_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+    }
+    else {
+    	$node->group_content_access[$node->language][0]['value'] = 2;
+    	$node->status = 0;
+    }
+  
+  node_save($node);
+}
+
+function school_group_youtube_update_form ($form, &$form_state) {
+  $form['youtube_id'] = array(
+    '#title' => t('Status'),
+  	'#description' => t('Copy the code from YouTube URL that follows after \'=\' ex: if the you tube URL is "http://www.youtube.com/user/CyberVillageSolution?v=nvVDqTkbWnk" copy only the part after \'=\' and paste it in the box above which in this example is "nvVDqTkbWnk"'),
+    '#type' => 'textfield',
+    '#size' => 15, 
+		'#maxlength' => 15, 
+    '#prefix' => '<div class="form-bg">',
+    '#suffix' => '</div>',
+    '#attributes' => array('placeholder' => array('Youtube video ID')),
+  );
+  $form['group_id'] = array(
+  		'#value' => arg(1),
+      '#type' => 'hidden',
+  );
+  $provact_setting_options = array('1' => 'Public - accessible to all site users', '2' => 'Private - accessible only to School Members', '3' => 'Protected - accessible only to Me');
+    $form['privacy_setting'] = array(
+  		'#type' => 'select',
+      '#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+      '#suffix' => '</div>',
+      '#options' => $provact_setting_options,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Post'),
+    '#attributes' => array('class' => array('btn')),
+  	'#prefix' => '<div id="status_update_privacy_settings" class="form-bg">',
+	'#suffix' => '</div>',
+  );
+  return $form;
+}
+
+function school_group_youtube_update_form_submit ($form, &$form_state) {
+$youtube_id = $form_state['values']['youtube_id'];
+  if($youtube_id == '') {
+    form_set_error("status_text", "Please enter youtube video ID.");
+  }
+  else {
+    // Group data
+    $group_node = node_load($form_state['values']['group_id']);
+    
+    $node = new stdClass();
+    $node->type = 'school_group_status_update';
+    node_object_prepare($node);
+    
+    if(isset($form_state['values']['node_id']) && $form_state['values']['node_id'] != '') {
+    	$node->nid = $form_state['values']['node_id'];
+    }
+    
+    $node->title    = 'Group Update for - ' . $group_node->title . ' at ' . date('c');
+    $node->language = LANGUAGE_NONE;
+    
+    $node->body[$node->language][0]['value']   = '';
+    $node->body[$node->language][0]['summary'] = text_summary('');
+    $node->body[$node->language][0]['format']  = 'filtered_html';
+    
+    $node->field_youtube_video_url[$node->language][0]['value'] = $youtube_id;
+    
+    $node->og_group_ref[$node->language][0]['target_id'] = $form_state['values']['group_id'];
+    
+    $node->field_post_type[$node->language][0]['value'] = 'youtube_video';
+    if($form_state['values']['privacy_setting'] < 3) {
+    	$node->group_access[$node->language][0]['value'] = $form_state['values']['privacy_setting'];
+    }
+    else {
+    	$node->group_access[$node->language][0]['value'] = 2;
+    	$node->status = 0;
+    }
+
+    node_save($node);
+
+    drupal_set_message(t('Status updated successfully.'), 'status');
+    
+  }
+  
+}
+
+function school_group_complete_status_form ($group_id = '') {
+  $txt_block = block_load('school_group','school_group_form');
+  $text_form = drupal_render(_block_get_renderable_array(_block_render_blocks(array($txt_block))));
+  
+  $img_block = block_load('school_group','school_group_image_form');
+  $img_form = drupal_render(_block_get_renderable_array(_block_render_blocks(array($img_block))));
+  
+  $vdo_block = block_load('school_group','school_group_youtube_form');
+  $vdo_form = drupal_render(_block_get_renderable_array(_block_render_blocks(array($vdo_block))));
+      
+  
+  $data = array('data' => array('text_form' => $text_form, 'image_form' => $img_form, 'video_form' => $vdo_form));
+  return theme('school_group_status_update_form_all', $data);
+}
+
+
+function _get_group_join_leave_link ($gid, $userObj = '') {
+  if(!is_object($user)) {
+    global $user;
+    $userObj = $user;
+  }
+  if(og_is_member('node', $gid, 'user', $userObj)) {
+    
+    $group_node = node_load($gid);
+    
+    if($group_node->uid != $userObj->uid){
+      return l('Unsubscribe Group', 'group/node/' . $gid . '/unsubscribe');
+    }
+    else {
+      return l('Add Memebers', 'school_group/' . $gid . '/invite');
+    }
+  }
+  else {
+    return l('Join Group', 'group/node/' . $gid . '/subscribe/og_user_node');
+  }
+}

@@ -1,0 +1,9 @@
+name = JSTOR Custom PayPal
+description = Custom module to integrate with the PayPal.
+core = 7.x
+dependencies[] = webform
+package = JSTOR
+version = "7.0"
+core = "7.x"
+project = "jstor_paypal"
+datestamp = "1343247336"

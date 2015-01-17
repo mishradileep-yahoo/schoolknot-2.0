@@ -1,0 +1,836 @@
+<?php
+
+/**
+ * Implementation of hook_block_info().
+ */
+function jstor_block_info() {
+   $blocks['archive-coll-dis'] = 
+        array('info' => t('Representative Disciplines in Archive Collection'));
+   $blocks['contacts'] = 
+        array('info' => t('Contacts page'));
+   $blocks['persons'] = 
+		array('info' => t('Contact Persons'));
+  
+   return $blocks;
+}
+/**
+ * Implementation of hook_block_configure().
+ */
+function jstor_block_configure($delta = '') {
+  
+  $form = array();
+  if ($delta == 'persons') {
+    $form['recent_contact_block_count'] = array(
+      '#type' => 'select', 
+      '#title' => t('Number of recent contact items to display'), 
+      '#default_value' => variable_get('recent_contact_block_count', 4), 
+      '#options' => drupal_map_assoc(array(1, 2, 3, 4)),
+    );
+  }
+  return $form;
+}
+/**
+ * Implementation of hook_block_save().
+ */
+function jstor_block_save($delta = '', $edit = array()) {
+  
+  if ($delta == 'persons') {
+    variable_set('recent_contact_block_count', $edit['recent_contact_block_count']);
+  }
+}
+
+
+/**
+ * Implementation of hook_block_view().
+ */
+function jstor_block_view($delta='') {
+$block = array();
+switch ($delta) {
+    case 'archive-coll-dis':
+        $block['subject'] = t('Representative Disciplines in Archive Collection');
+        $block['content'] = _representative_disciplines_in_archive_collection();
+        break;
+    case 'contacts':
+        $block['subject'] = t('');
+        $block['content'] = _get_contacts();
+	break;
+	case 'persons':
+        $block['subject'] = t('');
+        $block['content'] = _get_contact_persons();
+    break;
+}
+return $block;
+
+}
+
+
+/**
+ * Helper function to representative disciplines in archive_collection.
+ */
+ 
+function _representative_disciplines_in_archive_collection() {
+    $node_id = arg(1);
+    $output = '';
+    
+    $query = db_select('field_data_field_archival_discipline', 'fdfad');
+    $query->fields('fdfad', array('entity_id', 'field_archival_discipline_value'));
+    $query->fields('fdfd', array('field_discipline_tid'));
+    $query->fields('ttd', array('name'));
+    $query->fields('fdfdw', array('field_discipline_weight_value'));
+    $query->leftjoin('field_data_field_discipline', 'fdfd', 'fdfd.entity_id = fdfad.field_archival_discipline_value');
+    $query->leftjoin('field_data_field_discipline_weight', 'fdfdw', 'fdfdw.entity_id = fdfad.field_archival_discipline_value');
+    $query->leftjoin('taxonomy_term_data', 'ttd', 'ttd.tid = fdfd.field_discipline_tid');
+    $query->condition('fdfad.entity_id', $node_id);
+    $query->orderBy('field_discipline_weight_value', 'DESC');
+
+    $results = $query->execute();
+    foreach ($results as $result) {
+      //pr($result);
+      $output .= '<a href="javascript: void(0);" class="level'.(11-$result->field_discipline_weight_value).'">'.$result->name.'</a>' . "\n";
+      
+     }
+    return $output;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function jstor_permission() {
+  return array(
+    'access download' => array(
+      'title' => t('Access Download'),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function jstor_menu() {
+    $items['download/%'] = array(
+        'title' => 'Download A File',
+        'description' => 'Download a file',
+        'page callback' => '_download',
+        'page arguments' => array(1),
+        'access callback' => true,
+        'type' => MENU_CALLBACK
+    );
+    $items['how-to-subscribe-institution-type/%/content-tab/%'] = array(
+        'page callback' => 'jstor_page_content_tabs',
+        'type' => MENU_CALLBACK,
+        'access callback' => true,
+    );
+	// path with autocomplete function for current subscriber.
+	$items['current-subscribers-titlelist-autocomplete'] = array(
+		'title' => 'Autocomplete for current subscriber',
+		'page callback' => '_current_subscriber_autocomplete',
+		'access callback' => TRUE,
+		'type' => MENU_CALLBACK
+	);
+	
+	$items['admin/structure/sitevariables'] = array(
+		'title' => 'JSTOR Site Custom Settings',
+		'description' => 'Form to get header texts for landing pages. ',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('jstor_sitevariables_form'),
+		'access callback' => TRUE,
+		'type' => MENU_NORMAL_ITEM
+	);
+	
+    return $items;
+}
+
+
+/**
+ * Helper function to current subscriber autocomplete.
+ */
+
+function _current_subscriber_autocomplete($string) {
+	$matches = array();
+	$result = db_select('node', 'n')
+		->fields('n', array('title'))
+		->condition('title', db_like($string) . '%', 'LIKE')
+		->condition('type', 'current_subscribers', '=')
+		->orderby('title', 'ASC')
+		->range(0, 10)
+		->execute();
+
+	// save the query to matches
+	foreach ($result as $row) {
+		$matches[$row->title] = check_plain($row->title);
+	}
+	if(empty($matches)) $matches[] = t('No Subscriber exist with this name: %string', array('%string' => $string));
+	// Return the result to the form in json
+	return drupal_json_output($matches);
+}
+
+
+/* function jstor_theme() {
+    return array(
+        'institution_type_tab_content' => array(
+            'variables' => array('content' => NULL),
+            'file' => 'moon', // place you file in 'theme' folder of you module folder
+            'path' => drupal_get_path('module', 'moon') .'/theme'
+        )
+    );
+
+} */
+
+
+/**
+ * Helper function to downloada file.
+ *
+ *  @param $fid
+ *  	file_id of download file.
+ *
+ */
+
+function _download($fid) {
+    $query = db_select('file_managed', 'fm');
+    $query->fields('fm', array('filename', 'uri', 'filemime'));
+    $query->condition('fm.fid', $fid);
+    $results = $query->execute();
+    if($results->rowCount() > 0) {
+    foreach ($results as $result) {
+      $file['mime_type']    = $result->filemime;
+      $file['fileURI']      = $result->uri;
+      $file['file_name']    = $result->filename;
+      $file['file_path']    = file_create_url($result->uri);
+     }
+    ob_clean();
+    ob_start();
+    header('Content-type: '.$file['mime_type']);
+    header('Content-Disposition: attachment; filename="'.$file['file_name'].'"');
+    readfile($file['file_path']);
+    }
+    else {
+        return 'Error: File not found!';
+    }
+}
+
+/* 
+ * Altering Views Object for Title list Contextual filter
+ */
+function jstor_views_query_alter(&$view, &$query) { 
+    if($view->name == 'archive_collections_title_list') {
+        
+        $node = node_load(arg(1));
+        $check = substr($node->title, -8);
+        $collection_title = ($check == ' Package') ? substr($node->title, 0, -8) : $node->title;
+        $collection_title = trim($collection_title);
+        if($node->type == 'content_on_jstor_archival_collec'){
+          $condition['field'] = 'field_data_field_title_list_collection.field_title_list_collection_value';
+          $condition['value'] = '%'.$collection_title.' Collection|%';
+          $condition['operator'] = 'LIKE';
+          $query->where[2]['conditions'][] = $condition;
+
+          $condition['field'] = 'field_data_field_title_list_collection.field_title_list_collection_value';
+          $condition['value'] = '%'.$collection_title.'|%';
+          $condition['operator'] = 'LIKE';
+          $query->where[2]['conditions'][] = $condition;
+          $query->where[2]['type'] = 'OR'; 
+        }
+        else{
+          $check = substr($node->title, -8);
+          if($node->field_select_package[$node->language][0]['value'] == 'Discipline Package'){
+            $condition['field'] = ' field_data_field_csp_discipline_package.field_csp_discipline_package_value';
+          }
+          else{
+            $condition['field'] = 'field_data_field_csp_collection.field_csp_collection_value';
+          }
+          
+          $condition['value'] = '%'.$collection_title.'%';
+          $condition['operator'] = 'LIKE';
+          $query->where[2]['conditions'][] = $condition;
+        }
+    }
+}
+
+
+/**
+ * Implementation of hook_form_FORM_ID_alter().
+ */
+function jstor_form_apachesolr_search_custom_page_search_form_alter(&$form, $form_state) {
+	$element = &$form['basic']['keys'];
+	//Update Search text box
+	$element['#title'] = t('');
+	$element['#prefix'] = '<div class="searchBox">';
+	$element['#suffix'] = '</div>';
+	// Create elements if they do not exist.
+    if (!isset($element['#attributes'])) {
+      $element['#attributes'] = array();
+    }
+    if (!isset($element['#attributes']['class'])) {
+      $element['#attributes']['class'] = array();
+    }
+	array_push($element['#attributes']['class'], 'searchInput');
+	
+	//Hiding Submit button
+	$form['basic']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Search'),
+		'#attributes' => array('style' => array('display:none')),
+	);
+	
+	if (module_exists('apachesolr_autocomplete')) {
+		apachesolr_autocomplete_do_alter($element);
+	}
+}
+
+/**
+ * Implementation of HOOK_apachesolr_query_alter()
+ */
+function jstor_apachesolr_query_alter($query) {
+  // Get the Audience type from the index.
+  $query->addParam('fl', 'im_field_audience_type');
+}
+
+/**
+ * Helper function to retrieve Tag Name from the Tag ID.
+ */
+function _jstor_get_tag_name($tag_id){
+	$sql= 'SELECT name FROM {taxonomy_term_data} WHERE (tid = :tid)';
+	$tag_name = db_query($sql, array(':tid' => $tag_id))->fetchField();
+	return $tag_name;
+}
+
+
+/**
+ * Helper function to get contacts.
+ */
+function _get_contacts() {
+
+	global $base_url;
+	$output = '';
+
+	$sql_taxonomy = "SELECT a.nid,b.name,c.body_value FROM taxonomy_index a,taxonomy_term_data b,
+			field_data_body c WHERE a.tid=b.tid and b.vid = 11 and a.nid = c.entity_id order by a.nid asc";
+	
+	$res_header = db_query($sql_taxonomy);	
+	
+	foreach ($res_header as $header_data) {		
+		$output .= '<div class="contactAdd">';
+		$output .= '<h3>'.$header_data->name.'</h3>';
+		$output .= '<p>'.$header_data->body_value.'</p>';
+		
+		$sql_con_fields = "SELECT field_contact_details_value FROM field_data_field_contact_details where entity_id=".$header_data->nid;
+		$res_con_ids = db_query($sql_con_fields);
+		
+		foreach ($res_con_ids as $con_id) {
+			
+			$sql_con_details = "SELECT z.entity_id,a.field_first_name_value,b.field_last_name_value,c.field_designation_value,d.field_email_value,
+			e.field_phone_value,f.field_image_fid,g.uri FROM field_data_field_first_name a,field_data_field_last_name b,
+			field_data_field_designation c,field_data_field_email d,field_data_field_phone e,field_data_field_image f,file_managed g,
+			field_data_field_contact_details z where a.entity_id = z.field_contact_details_value and 
+			b.entity_id = z.field_contact_details_value and c.entity_id = z.field_contact_details_value and d.entity_id = z.field_contact_details_value and
+			e.entity_id = z.field_contact_details_value and f.entity_id = z.field_contact_details_value and 
+			g.fid = f.field_image_fid and z.field_contact_details_value =".$con_id->field_contact_details_value;
+			
+			$con_data = db_query($sql_con_details);
+			
+			foreach ($con_data as $rs_details) {				
+				$output .= '<div class="imgaddContr">';
+				$output .= '<div class="imgContr">';
+				$output .= '<img src="'.file_create_url($rs_details->uri).'"  />';
+				$output .= '</div>';
+				$output .= '<div class="addfInfo">';
+				$output .= '<p class="boldTxt">'.$rs_details->field_first_name_value.' '.$rs_details->field_last_name_value.'</p>';
+				$output .= '<p>'.$rs_details->field_designation_value.'</p>';
+				$output .= '<p class="blackTxt"><a href=mailto:' . $rs_details->field_email_value . '>'.$rs_details->field_email_value.'</a></p>';
+				$output .= '<p>'.$rs_details->field_phone_value.'</p>';
+				$output .= '</div>';
+				$output .= '</div>';
+			
+			}
+			
+		}
+		$output .= '</div>';
+	}
+	return $output;
+}
+
+/*
+ * To get publishers contact
+ */
+
+function _get_contact_persons() {
+
+	global $base_url;
+	$output = '';
+	
+	if ((arg(0) == 'node') && is_numeric(arg(1))) {
+        $node = node_load(arg(1));
+    }
+	
+	if( $node->type == 'general_pages' && 
+			($node->title == 'Primary Sources' || 
+			 $node->title == 'Current Journals' || 
+			 $node->title == 'Archive Collections' || 
+			 $node->title == 'Books')) {			 
+		$limit = 1;
+	}else
+		$limit = variable_get('recent_contact_block_count',4);
+			 
+	$sql_taxonomy = "SELECT a.nid,b.name,c.body_value FROM taxonomy_index a,taxonomy_term_data b,
+			field_data_body c WHERE a.tid=b.tid and b.vid = 11 and a.nid = c.entity_id and b.name like 'For Publishers' ORDER BY a.nid DESC";
+	
+	$res_header = db_query($sql_taxonomy);
+	$count=0;
+	foreach ($res_header as $header_data) {
+		$sql_con_fields = "SELECT field_contact_details_value FROM field_data_field_contact_details where entity_id=".$header_data->nid;
+		$res_con_ids = db_query($sql_con_fields);
+		
+		$output .= '<div class="contacts">';
+		$output .= '<h3>contacts</h3>';
+		//pr($res_con_ids);
+		foreach ($res_con_ids as $con_id) {
+			if($count == $limit)
+				break;
+			$sql_con_details = "SELECT z.entity_id,a.field_first_name_value,b.field_last_name_value,c.field_designation_value,d.field_email_value,
+			e.field_phone_value,f.field_image_fid,g.filename FROM field_data_field_first_name a,field_data_field_last_name b,
+			field_data_field_designation c,field_data_field_email d,field_data_field_phone e,field_data_field_image f,file_managed g,
+			field_data_field_contact_details z where a.entity_id = z.field_contact_details_value and 
+			b.entity_id = z.field_contact_details_value and c.entity_id = z.field_contact_details_value and d.entity_id = z.field_contact_details_value and
+			e.entity_id = z.field_contact_details_value and f.entity_id = z.field_contact_details_value and 
+			g.fid = f.field_image_fid and z.field_contact_details_value =".$con_id->field_contact_details_value;
+			
+			$con_data = db_query($sql_con_details);
+			
+			foreach ($con_data as $rs_details) {
+				$output .= '<div class="indContacts">';
+				$output .= '<img src="'.$base_url.'/sites/default/files/contact/images/'.$rs_details->filename.'" width="71px" height="60px"  />';
+				$output .= '<p><span>'.$rs_details->field_first_name_value.'</span> <span>'.$rs_details->field_last_name_value.'</span></p>';
+				$output .= '<p>'.$rs_details->field_designation_value.'</p>';
+				$output .= '<p><a href="mailto:'.$rs_details->field_email_value.'" class="email">Email</a>';
+				$output .= '<span href="#" class="phone">'.$rs_details->field_phone_value.'</span></p>';
+				$output .= '</div>';
+			}
+			$count++;			
+		}
+		$output .= '</div>';
+	}
+	print $output;
+}
+
+
+/**
+ * Form for site variables.
+ */
+function jstor_sitevariables_form() {
+  // Creating Form elements
+  $form['librarian_faq_landing_page_desc'] = array(
+	'#title' => t('Librarian FAQ landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the librarian FAQ landing View Page'),
+	'#default_value' => variable_get('librarian_faq_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 1,
+  );
+  
+   $form['publishers_faq_landing_page_desc'] = array(
+	'#title' => t('Publishers FAQ landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the publishers FAQ landing View Page'),
+	'#default_value' => variable_get('publishers_faq_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 2,
+  );
+  
+  
+  $form['individuals_faq_landing_page_desc'] = array(
+	'#title' => t('Individuals FAQ landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the individuals FAQ landing View Page'),
+	'#default_value' => variable_get('individuals_faq_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 3,
+  );
+  
+  
+  $form['general_faq_landing_page_desc'] = array(
+	'#title' => t('General FAQ landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the general FAQ landing View Page'),
+	'#default_value' => variable_get('general_faq_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 4,
+  );
+  
+  $form['video_tutorials_landing_page_desc'] = array(
+	'#title' => t('Video tutorials landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the video tutorials landing View Page'),
+	'#default_value' => variable_get('video_tutorials_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 5,
+  );
+  
+  $form['terminology_landing_page_desc'] = array(
+	'#title' => t('Terminology landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the terminology landing View Page'),
+	'#default_value' => variable_get('terminology_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 6,
+  );
+  
+  $form['techinical_information_landing_page_desc'] = array(
+	'#title' => t('Techinical Information landing page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the techinical information landing View Page'),
+	'#default_value' => variable_get('techinical_information_landing_page_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 7,
+  );
+  
+  $form['most_popular_help_topic_desc'] = array(
+	'#title' => t('Most popular help topic header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the most popular help topic in Help and Support Page'),
+	'#default_value' => variable_get('most_popular_help_topic_desc', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 8,
+  );
+  
+  $form['main_home_page_header'] = array(
+	'#title' => t('Main home page header'),
+	'#type' => 'textarea',
+	'#description' => t('Header message for the main Home Page'),
+	'#default_value' => variable_get('main_home_page_header', ''),
+	'#cols' => 40,
+	'#rows' => 3,
+	'#resizable' => TRUE,
+	'#weight' => 9,
+  );
+  
+  	$form['blog_promotional_block_id']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Promotional Block ID for Blog"),
+		'#default_value'	=> variable_get('blog_promotional_block_id', ''),
+		'#description'	=> "
+			<p>" . t("Specify the Block ID of the Promotional block on Blog") . "</p>
+		",
+		'#weight' => 10,
+	);
+	
+	$form['librarians_news_header']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Librarians News, Events,Webinars Page Title"),
+		'#default_value'	=> variable_get('librarians_news_header', ''),
+		'#description'	=> "
+			<p>" . t("Specify the Librarians News, Events,Webinars Page Title") . "</p>
+		",
+		'#weight' => 11,
+	);
+	
+	$form['publishers_news_header']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Publishers News, Events,Webinars Page Title"),
+		'#default_value'	=> variable_get('publishers_news_header', ''),
+		'#description'	=> "
+			<p>" . t("Specify the Publishers News, Events,Webinars Page Title") . "</p>
+		",
+		'#weight' => 12,
+	);
+        
+        
+        
+        $form['jstor_publishers_page_header']	= array(
+		'#type'		        => 'textarea',
+		'#title'	        => t("JSTOR Publishers page Header"),
+		'#default_value'	=> variable_get('jstor_publishers_page_header', ''),
+		'#description'	=> "
+			<p>" . t("Specify the JSTOR Publishers page Header") . "</p>
+		",
+		'#weight' => 13,
+	);
+        
+	
+	$form['webform'] = array(
+		'#type' => 'fieldset', 
+		'#title' => t('Webform Nodes'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => TRUE,
+		'#weight' => 14,
+	);
+	
+	$form['webform']['contact_ipc_form_node']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Contact IPC Node ID"),
+		'#default_value'	=> variable_get('contact_ipc_form_node', ''),
+		'#description'	=> "
+			<p>" . t("Specify the Node ID of the Contact IPC WebForm") . "</p>
+		",
+	);
+	
+	$form['webform']['enews_registration_form_node']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("E-News registration Node ID"),
+		'#default_value'	=> variable_get('enews_registration_form_node', ''),
+		'#description'	=> "
+			<p>" . t("Specify the Node ID of the E-News registration WebForm") . "</p>
+		",
+	);
+	
+	$form['webform']['publisher_contact_form_node']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Publisher Contact Node ID"),
+		'#default_value'	=> variable_get('publisher_contact_form_node', ''),
+		'#description'	=> "
+			<p>" . t("Specify the Node ID of the Publisher Contact WebForm") . "</p>
+		",
+	);
+        
+        
+    $form['social_media_pages'] = array(
+		'#type' => 'fieldset', 
+		'#title' => t('Soclal Media Links'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => TRUE,
+		'#weight' => 15,
+	);    
+    $form['social_media_pages']['facebook_page_url']= array(
+		'#type'         => 'textfield',
+		'#title'        => t("Facebook Page URL"),
+		'#default_value'=> variable_get('facebook_page_url', 'http://www.facebook.com/JSTOR.org'),
+		'#description'  => "<p>" . t("Specify the URL of facebook page") . "</p>",
+	);
+    $form['social_media_pages']['twitter_page_url']= array(
+		'#type'         => 'textfield',
+		'#title'        => t("Twitter Page URL"),
+		'#default_value'=> variable_get('twitter_page_url', 'https://twitter.com/JSTOR'),
+		'#description'  => "<p>" . t("Specify the URL of twitter page") . "</p>",
+	);
+	
+        
+  $form['webform_confirm_message'] = array(
+		'#type' => 'fieldset', 
+		'#title' => t('Webform confirm message'), 
+		'#collapsible' => TRUE, 
+		'#collapsed' => TRUE,
+		'#weight' => 16,
+	); 
+  $form['webform_confirm_message']['contact_IPC_title']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Contact IPC Title"),
+		'#default_value'	=> variable_get('webform_confirm_message_contact_IPC_title', ''),
+		'#description'	=> "<p>" . t("Please specify title text of confirm message popup after submitting contact IPC form") . "</p>",
+	);
+  $form['webform_confirm_message']['contact_IPC_message'] = array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Contact IPC Message"),
+		'#default_value'	=> variable_get('webform_confirm_message_contact_IPC_message', ''),
+		'#description'	=> "<p>" . t("Please specify message text of confirm message popup after submitting contact IPC form") . "</p>",
+	);
+  $form['webform_confirm_message']['enews_registration_title']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("E-News Registration Title"),
+		'#default_value'	=> variable_get('webform_confirm_message_enews_registration_title', ''),
+		'#description'	=> "<p>" . t("Please specify title text of confirm message popup after submitting E-News Registration Form") . "</p>",
+	);
+  $form['webform_confirm_message']['enews_registration_message'] = array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("E-News Registration Message"),
+		'#default_value'	=> variable_get('webform_confirm_message_enews_registration_message', ''),
+		'#description'	=> "<p>" . t("Please specify message text of confirm message popup after submitting E-News Registration Form") . "</p>",
+	);
+  $form['webform_confirm_message']['news_publisher_contact_title']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("New Publisher Contact Form Title"),
+		'#default_value'	=> variable_get('webform_confirm_message_news_publisher_contact_title', ''),
+		'#description'	=> "<p>" . t("Please specify title text of confirm message popup after submitting E-News Registration Form") . "</p>",
+	);
+  $form['webform_confirm_message']['news_publisher_contact_message'] = array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("New Publisher Contact Form Message"),
+		'#default_value'	=> variable_get('webform_confirm_message_news_publisher_contact_message', ''),
+		'#description'	=> "<p>" . t("Please specify message text of confirm message popup after submitting New Publisher Contact Form") . "</p>",
+	);
+  $form['webform_confirm_message']['paypal_title']	= array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Paypal Form Title"),
+		'#default_value'	=> variable_get('webform_confirm_message_paypal_title', ''),
+		'#description'	=> "<p>" . t("Please specify title text of confirm message popup after submitting Paypal Form") . "</p>",
+	);
+  $form['webform_confirm_message']['paypal_message'] = array(
+		'#type'		        => 'textfield',
+		'#title'	        => t("Paypal Form Message"),
+		'#default_value'	=> variable_get('webform_confirm_message_paypal_message', ''),
+		'#description'	=> "<p>" . t("Please specify message text of confirm message popup after submitting Paypal Form") . "</p>",
+	);
+	
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+	'#weight' => 17,
+  );
+  return $form;
+}
+
+
+
+/*
+ * Handle Site Variables form submission.
+ */
+function jstor_sitevariables_form_submit($form, &$form_state) {
+  $librarian_faq_landing_page_desc = $form_state['values']['librarian_faq_landing_page_desc'];
+  $publishers_faq_landing_page_desc = $form_state['values']['publishers_faq_landing_page_desc'];
+  $individuals_faq_landing_page_desc = $form_state['values']['individuals_faq_landing_page_desc'];
+  $general_faq_landing_page_desc = $form_state['values']['general_faq_landing_page_desc'];
+  $video_tutorials_landing_page_desc = $form_state['values']['video_tutorials_landing_page_desc'];
+  $terminology_landing_page_desc = $form_state['values']['terminology_landing_page_desc'];
+  $techinical_information_landing_page_desc = $form_state['values']['techinical_information_landing_page_desc'];
+  $most_popular_help_topic_desc = $form_state['values']['most_popular_help_topic_desc'];
+  $main_home_page_header = $form_state['values']['main_home_page_header'];
+  //Save the Form Variables
+  variable_set('librarian_faq_landing_page_desc', $librarian_faq_landing_page_desc);
+  variable_set('publishers_faq_landing_page_desc', $publishers_faq_landing_page_desc);
+  variable_set('individuals_faq_landing_page_desc', $individuals_faq_landing_page_desc);
+  variable_set('general_faq_landing_page_desc', $general_faq_landing_page_desc);
+  variable_set('video_tutorials_landing_page_desc', $video_tutorials_landing_page_desc);
+  variable_set('terminology_landing_page_desc', $terminology_landing_page_desc);
+  variable_set('techinical_information_landing_page_desc', $techinical_information_landing_page_desc);
+  variable_set('most_popular_help_topic_desc', $most_popular_help_topic_desc);
+  variable_set('main_home_page_header', $main_home_page_header);
+  variable_set('contact_ipc_form_node', $form_state['values']['contact_ipc_form_node']);
+  variable_set('enews_registration_form_node', $form_state['values']['enews_registration_form_node']);
+  variable_set('publisher_contact_form_node', $form_state['values']['publisher_contact_form_node']);
+  variable_set('jstor_publishers_page_header', $form_state['values']['jstor_publishers_page_header']);
+  
+  variable_set('facebook_page_url', $form_state['values']['facebook_page_url']);
+  variable_set('twitter_page_url', $form_state['values']['twitter_page_url']);
+  variable_set('blog_promotional_block_id', $form_state['values']['blog_promotional_block_id']);
+  variable_set('librarians_news_header', $form_state['values']['librarians_news_header']);
+  variable_set('publishers_news_header', $form_state['values']['publishers_news_header']);
+  
+  /* Webform confirm messages */
+  variable_set('webform_confirm_message_contact_IPC_title', $form_state['values']['contact_IPC_title']);
+  variable_set('webform_confirm_message_contact_IPC_message', $form_state['values']['contact_IPC_message']);
+  variable_set('webform_confirm_message_enews_registration_title', $form_state['values']['enews_registration_title']);
+  variable_set('webform_confirm_message_enews_registration_message', $form_state['values']['enews_registration_message']);
+  variable_set('webform_confirm_message_news_publisher_contact_title', $form_state['values']['news_publisher_contact_title']);
+  variable_set('webform_confirm_message_news_publisher_contact_message', $form_state['values']['news_publisher_contact_message']);
+  variable_set('webform_confirm_message_paypal_title', $form_state['values']['paypal_title']);
+  variable_set('webform_confirm_message_paypal_message', $form_state['values']['paypal_message']);
+  
+      
+  drupal_set_message(t('Variables have been saved'));
+}
+
+/**
+ * Implements hook_webform_submission_insert().
+ */
+function jstor_webform_submission_insert($node, $submission) {
+
+//Alter Contact IPC form submission
+	$contact_ipc_form_node = variable_get('contact_ipc_form_node', '');
+	if ($node->nid == $contact_ipc_form_node) {
+    $mapping = _jstor_webform_component_mapping($node);
+		
+		$email_to_field = $submission->data[$mapping['regions']]['value'][0] . "_email" ;
+		  
+			//Updating the webform data record
+			db_update('webform_submitted_data')
+        ->fields(array(
+        'data' => $submission->data[$mapping[$email_to_field]]['value'][0], 
+			))
+        ->condition('cid', $mapping['email_to'])
+        ->condition('sid', $submission->sid)
+        ->execute();
+	}
+}
+
+/**
+ * Function to convert webform submissions into a nicely-mapped array.
+ */
+function _jstor_webform_component_mapping($node) {
+  $mapping = array();
+  $components = $node->webform['components'];
+  foreach ($components as $i => $component) {
+    $key = $component['form_key'];
+    $mapping[$key] = $i;
+  }
+  return $mapping;
+}
+
+
+/*
+ * HOOK_feeds_after_parse implementation
+ */
+function jstor_feeds_after_parse(FeedsSource $source, FeedsParserResult $result) {
+  if($source->importer()->id == 'current_particepents_archival_journals_importer'){
+      foreach($result->items as $key => $row) {
+      $result->items[$key]['xpathparser:1'] = 'yes';
+    }
+  }
+  if($source->importer()->id == 'archival_collection_title_list_tab_delimited_importer'){
+      foreach($result->items as $key => $row) {
+        $str = html_entity_decode($row['collection']);
+        $exploded = explode(';', $str);
+        $output = '';
+        foreach($exploded as $collection){
+          $output .= trim($collection) . '|';
+        }
+        $result->items[$key]['collection'] = $output;
+        $result->items[$key]['is_archival'] = 'yes';
+    }
+  }
+ if($source->importer()->id == 'csp_collection_title_list_importer'){
+     foreach($result->items as $key => $row) {
+       $result->items[$key]['is_csp'] = 'yes';
+   }
+ }
+}
+
+/**
+ * Implements hook_node_view().
+ */
+ function jstor_node_view($node, $view_mode) {
+	if ($view_mode == 'full' && node_is_page($node)){
+		switch($node->type){
+			case 'current_particepents_archival':
+				if(!empty($node->field_is_archival) && $node->field_is_archival[$node->language][0]['value'] == 'yes'){
+					drupal_goto('jstor-publishers/' . $node->title{0});
+				} else if(!empty($node->field_is_csp) && $node->field_is_csp[$node->language][0]['value'] == 'yes'){
+					drupal_goto('jstor-publishers-csp/' . $node->title{0});
+				} else if(!empty($node->field_is_books) && $node->field_is_books[$node->language][0]['value'] == 'yes'){
+					drupal_goto('jstor-publishers-books/' . $node->title{0});
+				} else if(!empty($node->field_is_primary_sources) && $node->field_is_primary_sources[$node->language][0]['value'] == 'yes'){
+					drupal_goto('jstor-publishers-primary-sources/' . $node->title{0});
+				}
+				exit;
+			break;
+			case 'current_subscribers':
+				drupal_goto('jstor-institutions', array('query' => array('title_2' => $node->title)));
+				exit;
+			break;
+			case 'help_and_support_general_support':
+				drupal_goto('general-support',  array('fragment' => str_replace(" ", "_", $node->title)));
+				exit;
+			break;
+			case '_terminology':
+				drupal_goto('terminology', array('fragment' => $node->title{0}));
+				exit;
+			break;
+			default:
+				break;
+		}
+	}
+ }

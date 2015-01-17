@@ -1,0 +1,268 @@
+<?php
+/**
+ * Implements hook_permission().
+ */
+function node_compare_permission() {
+  return array(
+    'access compare' => array(
+      'title' => t('Access Compare'),
+    ),
+  );
+}
+
+/*
+ * Implement HOOK_menu 
+ */
+function node_compare_menu() {
+  $items['compare/compare_schools'] = array(
+    'title' => 'Compare Schools',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('compare_schools_autocomplate'),
+    'access arguments' => array('access compare'),
+  );
+  $items['compare/node_autocomplete'] = array(
+    'page callback' => 'compare_schools_autocomplate_callback',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access compare'),
+  );
+  $items['progress_sheet_template_generator_form'] = array(
+    'title' => 'Progress Sheet Template Generator',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('progress_sheet_template_generator'),
+    'access arguments' => array('access compare'),
+  );
+  return $items;
+}
+
+/*
+ * 
+ */
+function compare_schools_autocomplate($form, &$form_state) {
+  $form = array();
+  for($i=1; $i<=4; $i++) {
+    $form['school'.$i] = array(
+      '#type' => 'textfield', 
+  		'#title' => t('School '.$i), 
+      '#size' => 60, 
+      '#maxlength' => 128,
+      '#autocomplete_path' => 'compare/node_autocomplete',
+    );
+  }
+  
+  $form['actions'] = array(
+    '#type' => 'actions'
+  );
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Compare Schools'),
+  );
+  
+  return $form;
+}
+
+function compare_schools_autocomplate_validate($form, &$form_state) {
+  $matches = $validate = array();
+  for($i=1; $i<=4; $i++) {
+    $title = $form_state['values']['school'.$i];
+    $result = preg_match('/\[([0-9]+)\]$/', $title, $matches);
+    $form_state['values']['school'.$i] = ($result == 0) ? 0 : $matches[$result];
+    if($form_state['values']['school'.$i] != 0) {
+      $validate['school'.$i] = $form_state['values']['school'.$i];
+    }
+  }
+  if(count($validate) < 2) {
+    form_set_error('file', t('Please select atleast 2 schools.'));
+  }
+  
+}
+
+function compare_schools_autocomplate_submit($form, &$form_state) {
+  //pr($form_state); die('In submit');
+  $schoolIds = array();
+  for($i=1; $i<=4; $i++) {
+    $schoolIds[] = ($form_state['values']['school'.$i] != '') ? $form_state['values']['school'.$i] : 0;
+  }
+  $schoolIds = implode(',', $schoolIds);
+  drupal_goto('compare-schools/'.$schoolIds);
+}
+
+/*
+ * 
+ */
+function compare_schools_autocomplate_callback($string = '') {
+  $matches = array();
+  if ($string) {
+    $result = db_select('node')
+      ->fields('node', array('nid', 'title'))
+      ->condition('title', db_like($string) . '%', 'LIKE')
+      ->condition('type', 'school', '=')
+      ->range(0, 10)
+      ->execute();
+    foreach ($result as $node) {
+      $matches[$node->title . " [$node->nid]"] = check_plain($node->title);
+    }
+  }
+  
+  drupal_json_output($matches);
+}
+
+function progress_sheet_template_generator($form, &$form_state) {
+    global $user;
+    //$exams = array('0'=> 'Without Exam');
+    $result = db_select('node')
+      ->fields('node', array('nid', 'title'))
+      ->condition('type', 'examination', '=')
+      ->condition('uid', $user->uid, '=')
+      ->range(0, 100)
+      ->execute();
+    foreach ($result as $node) {
+      $exams[$node->nid] = check_plain($node->title);
+    }
+  $form['exam'] = array(
+      '#type' => 'select', 
+  		'#title' => t('Examination'), 
+      '#options' => $exams, 
+      '#description' => t('Select exam to generate template for progress sheet bulk upload.'),
+    );
+    
+    // Classes
+    $exams = array();
+    $result = db_select('node')
+      ->fields('node', array('nid', 'title'))
+      ->condition('type', 'classes', '=')
+      ->condition('uid', $user->uid, '=')
+      ->range(0, 100)
+      ->execute();
+    foreach ($result as $node) {
+      $exams[$node->nid] = check_plain($node->title);
+    }
+  $form['class'] = array(
+      '#type' => 'select', 
+  		'#title' => t('Class'), 
+      '#options' => $exams, 
+      '#description' => t('Select class to generate template for progress sheet bulk upload.'),
+    );
+    
+    
+  
+  $form['actions'] = array(
+    '#type' => 'actions'
+  );
+
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+  );
+  
+  return $form;
+}
+
+function progress_sheet_template_generator_submit($form, &$form_state) {
+  
+  $exam = node_load($form_state['values']['exam']);
+  $class = node_load($form_state['values']['class']);
+  $class_arg = array('nid' => $class->nid, 'title' => $class->title);
+  $subject_nids = array();
+  foreach($class->field_subjects['und'] as $subject) {
+    array_push($subject_nids, $subject['target_id']);
+  }
+  
+  $sujects = node_load_multiple($subject_nids, $conditions);
+  foreach ($sujects as $suject) {
+    $subject_arg[] = array('nid' => $suject->nid, 'title' => $suject->title);
+  }
+  $exam_arg = array('exam_title' => $exam->title, 'exam_nid' => $exam->nid);
+
+  
+  node_compare_export_nodes($class_arg, $exam_arg, $subject_arg);
+  
+  
+  //$download_url = 'progress-sheet-bulk-upload-template-generator/' . $form_state['values']['exam']  . '/' . $form_state['values']['class'];
+  drupal_goto($download_url);
+}
+
+function node_compare_export_nodes($class, $exam, $subject) {
+  // Load the library.
+  if(function_exists('libraries_get_path')){
+  $path = libraries_get_path('PHPExcel');
+  $path = "$path/PHPExcel.php";
+  }else{
+  $path = drupal_get_path('module', 'feeds_xls') . '/PHPExcel/PHPExcel.php';
+  }
+  require_once $path;
+  
+  $objPHPExcel = new PHPExcel();
+  $objPHPExcel
+    ->getProperties()
+    ->setCreator("Maarten Balliauw")
+    ->setLastModifiedBy("Maarten Balliauw")
+    ->setTitle("Office 2007 XLSX Test Document")
+    ->setSubject("Office 2007 XLSX Test Document")
+    ->setDescription("Test document for Office 2007 XLSX, generated using PHP classes.")
+    ->setKeywords("office 2007 openxml php")
+    ->setCategory("Test result file");
+  
+  $objPHPExcel->setActiveSheetIndex(0)
+    ->setCellValue('A1', 'Student SR No')
+    ->setCellValue('B1', 'First Name')
+    ->setCellValue('C1', 'Last Name')
+    ->setCellValue('D1', 'Class')
+    ->setCellValue('E1', 'Exam')
+    ->setCellValue('F1', 'Subject')
+    ->setCellValue('G1', 'Max Marks')
+    ->setCellValue('H1', 'Passing Marks')
+    ->setCellValue('I1', 'Scored Marks');
+  
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'user')
+    ->fieldCondition('field_class', 'target_id', $class['nid'], '=');
+  $result = $query->execute();
+  
+  $user_ids = array();
+  foreach ($result['user'] as $users) {
+    $user_ids[] = $users->uid;
+  }
+  
+  $students = user_load_multiple($user_ids);
+  
+  $index = 1;
+  foreach($students as $student) {
+    foreach ($subject as $subj) {
+      $index++;
+      $objPHPExcel->setActiveSheetIndex(0)
+        ->setCellValue('A' . $index, $student->field_student_registration_id['und'][0]['value'])
+        ->setCellValue('B' . $index, $student->field_student_first_name['und'][0]['value'])
+        ->setCellValue('C' . $index, $student->field_student_last_name['und'][0]['value'])
+        ->setCellValue('D' . $index, $class['title'])
+        ->setCellValue('E' . $index, $exam['exam_title'])
+        ->setCellValue('F' . $index, $subj['title'])
+        ->setCellValue('G' . $index, '')
+        ->setCellValue('H' . $index, '')
+        ->setCellValue('I' . $index, '');
+    }
+  }
+  
+  
+  
+  
+  $objPHPExcel->getActiveSheet()->setTitle('Simple');
+  
+  $objPHPExcel->setActiveSheetIndex(0);
+  // Set active sheet index to the first sheet, so Excel opens this as the first sheet
+  $file_name = $exam['exam_title'] . '_' . $class['title'];
+  $file_name = ucwords($file_name);
+  $file_name = preg_replace('@[ ]+@','-',$file_name);
+  $file_name = preg_replace('@[^A-Za-z0-9_-]+@','_',$file_name);
+  
+  
+  header('Content-Type: application/vnd.ms-excel');
+  header('Content-Disposition: attachment;filename="' . $file_name . '.xls"');
+  header('Cache-Control: max-age=0');
+  
+  $objWriter = PHPExcel_IOFactory::createWriter($objPHPExcel, 'Excel5');
+  $objWriter->save('php://output');
+  exit;
+}
+
+//compare_auto_complete();

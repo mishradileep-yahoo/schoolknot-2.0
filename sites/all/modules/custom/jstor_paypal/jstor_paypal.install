@@ -1,0 +1,76 @@
+<?php
+
+/**
+ * @file
+ *   Webform module install/schema hooks.
+ */
+ 
+/**
+ * Implements hook_schema().
+ */
+function jstor_paypal_schema() {
+  $schema['jstor_paypal_transactions'] = array(
+    'description' => 'Stores the PayPal transaction information', 
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial', 
+        'unsigned' => TRUE, 
+        'not null' => TRUE, 
+        'description' => "Primary Identifier of the record",
+      ), 
+      'txn_id' => array(
+        'type' => 'varchar', 
+        'length' => 19, 
+        'not null' => TRUE, 
+        'description' => "PayPal Transaction ID",
+      ), 
+			'payer_email' => array(
+        'type' => 'varchar', 
+        'length' => 75, 
+        'not null' => TRUE, 
+        'description' => "Payer's Email ID",
+      ),
+			'payment_status' => array(
+        'type' => 'varchar', 
+        'length' => 75, 
+        'not null' => TRUE, 
+        'description' => "Payment Status",
+      ),
+			'mc_gross' => array(
+				 'type' => 'numeric', 
+				 'size' => 'normal', 
+				 'not null' => TRUE, 
+				 'precision' => 10, 
+				 'scale' => 2,
+			),
+			'sid' => array(
+        'description' => 'The unique identifier for this submission.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),    
+			'item_number' => array(
+        'description' => 'The item number entered by the user',
+        'type' => 'varchar', 
+        'length' => 75,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ), 
+    'primary key' => array('id'), 
+    'unique keys' => array(
+      'txn_id' => array('txn_id'),
+    ), 
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function jstor_paypal_uninstall() {
+  // Unset variables.
+  variable_del('jstor_paypal_settings');
+}

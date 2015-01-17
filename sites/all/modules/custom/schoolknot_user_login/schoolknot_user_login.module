@@ -1,0 +1,1450 @@
+<?php
+/**
+ * Implements hook_permission().
+ */
+function schoolknot_user_login_permission () {
+  return array(
+      'schoolknot user login' => array(
+          'title' => t('schoolknot user login'),
+          'description' => t('Allow anonymous user for 2 stepped login.')
+      ),
+      'schoolknot user agreement' => array(
+          'title' => t('schoolknot user Agreement'),
+          'description' => t('Allow Parent users to sign up user agreement.')
+      ),
+      'schoolknot create user' => array(
+          'title' => t('schoolknot create user'),
+          'description' => t('Allow school admin to create edit student record.')
+      ),
+      'schoolknot reset password' => array(
+          'title' => t('schoolknot reset password'),
+          'description' => t('Allow users to reset password.')
+      )
+      
+  );
+}
+
+function schoolknot_user_login_menu() {
+  $items = array();
+  $items['schoolknot_user_login/step1'] = array(
+  	'title' => 'User Login - Step 1',
+    'description' => 'User Login - Step 1',
+  	'page callback' => 'drupal_get_form',
+	'page arguments' => array('schoolknot_user_login_step1'),
+  	'access arguments' 	=> array('schoolknot user login'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['schoolknot_user_login/step2/%'] = array(
+  	'title' => 'User Login - Step 1',
+    'description' => 'User Login - Step 1',
+  	'page callback' => 'drupal_get_form',
+	'page arguments' => array('schoolknot_user_login_step2', 2),
+  	'access arguments' 	=> array('schoolknot user login'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['schoolknot_user_login/school_autocomplete'] = array(
+  	'title' => 'School name autocomplete',
+    'description' => 'School name autocomplete',
+  	'page callback' => 'school_name_autocomplete',
+  	'access arguments' 	=> array('schoolknot user login'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['schoolknot_user_login/user_agreement'] = array(
+  	'title' => 'Student Parent User Agreement',
+    'description' => 'Student Parent User Agreement',
+  	'page callback' => 'drupal_get_form',
+	'page arguments' => array('schoolknot_user_agreeement'),
+  	'access arguments' 	=> array('schoolknot user agreement'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['create_student'] = array(
+  	'title' => 'Create an individual student',
+    'description' => 'Create an individual student',
+  	'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolknot_create_user'),
+  	'access arguments' 	=> array('schoolknot create user'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['create_teacher'] = array(
+  	'title' => 'Create an individual teacher',
+    'description' => 'Create an individual teacher',
+  	'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolknot_create_teacher'),
+  	'access arguments' 	=> array('schoolknot create user'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  $items['edit_student/%'] = array(
+  	'title' => 'Create an individual student',
+    'description' => 'Create an individual student',
+  	'page callback' => 'drupal_get_form',
+	'page arguments' => array('schoolknot_edit_user', 1),
+  	'access arguments' 	=> array('schoolknot create user'),
+  	'type' => MENU_LOCAL_ACTION,
+  );
+  
+  
+   $items['schoolknot/reset/%/%/%'] = array(
+  	'title' => 'Reset password',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolknot_user_auth_account', 2, 3, 4),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['schoolknot/reset/password'] = array(
+  	'title' => 'Reset password',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolknot_user_reset_password'),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['user/login'] = array(
+  	'title' => 'Reset password',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolknot_user_reset_password'),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['parent/resend-auth-email/%'] = array(
+  	'title' => 'Reset password',
+    'page callback' => 'schoolknot_parent_resend_auth_email',
+    'page arguments' => array(2),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['schoolknot/auth-account'] = array(
+  	'title' => 'Authenticate account',
+    'page callback' => 'schoolknot_auth_account',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+function schoolknot_user_login_step1($form, &$form_state) {
+	$form['title'] = array(
+		'#type' => 'textfield',
+		'#title' => t('School Name'), 
+		'#description' => t('Type school name and select desired school from options below.'),
+		'#autocomplete_path' => 'schoolknot_user_login/school_autocomplete',
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Type school name')),
+	);
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Login'),
+	);
+		
+	return $form;
+}
+
+function schoolknot_user_login_step1_submit($form, &$form_state) {
+	drupal_goto('schoolknot_user_login/step2/' . base64_encode($form_state['values']['title']));
+}
+
+function schoolknot_user_login_step2($form, &$form_state, $school_name) {
+	
+	$form['school_name'] = array(
+		'#type' => 'textfield',
+		'#title' => t('School name'),
+		'#disabled' =>TRUE, 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#default_value' => base64_decode($school_name),
+	);
+	$form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Username'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Username')),
+	  '#description' => 'Please enter the student registration ID',
+	);
+	$form['password'] = array(
+		'#type' => 'password',
+		'#title' => t('Password'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Password')),
+		'#description' => 'Please enter the student date of birth in YYYYMMDD format for first time login.',
+	);
+	$form['school_title'] = array(
+		'#type' => 'hidden',
+		'#value' => $school_name,
+		
+	);
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Login'),
+	);
+	
+	return $form;	
+}
+
+function schoolknot_user_login_step2_submit($form, &$form_state) {
+  global $user;
+	// Get School from school name
+	$query = db_select('node', 'n');
+	$query->fields('n', array('nid'))
+		->condition('n.title', base64_decode($form_state['values']['school_title']), '=')
+		->condition('n.type', 'school', '=')
+		->condition('n.status', '1', '=')
+		->range(0, 1);
+	$result = $query->execute()->fetchAll();
+	
+	// Get User from SR Number
+	$query = db_select('users', 'u');
+	$query->leftJoin('field_data_field_student_registration_id', 'srnum', 'u.uid = srnum.entity_id');
+	$query->leftJoin('field_data_field_password_status', 'pass_status', 'u.uid = pass_status.entity_id');
+	$query->leftJoin('field_data_field_agreement_status', 'agree_status', 'u.uid = agree_status.entity_id');
+	$query->leftJoin('og_membership', 'og', 'u.uid = og.etid');
+	$query->fields('u', array('name'))
+	  ->fields('pass_status', array('field_password_status_value'))
+	  ->fields('agree_status', array('field_agreement_status_value'))
+		->condition('srnum.field_student_registration_id_value', check_plain($form_state['values']['username']), '=')
+		->condition('og.gid', check_plain($result[0]->nid), '=');
+	$result = $query->execute()->fetchAll();
+  
+  $user_details = reset($result);
+  $userObj = user_load_by_name($user_details->name);
+	if($user_details->field_password_status_value == 'email_not_verified' && $user_details->field_agreement_status_value == 1){
+	  
+	  
+	  $message = 'You have not verified your email. Please check your email from support@schoolknot.com and click on the link within.';
+	  $message .= ' Please do check spams if you don\'t find in inbox.';
+	  $message .= '<br> Please '. l('click here', 'parent/resend-auth-email/' . $userObj->uid ) . ' to resend your activation link.';
+	  drupal_set_message($message, 'warning');
+	  drupal_goto(); exit;
+	}
+	$username = $user_details->name;
+  
+	$password = $form_state['values']['password'];
+	if ($uid = user_authenticate($username, $password)) {
+		
+		$loginUser = user_load($uid);
+		$login_array = array ('name' => $username);
+		user_login_finalize($login_array);
+		
+		if($loginUser->status == 0) {
+		  drupal_set_message('Your account was not activated. Please check your email for activation link.', 'error');
+		  drupal_goto();
+		}
+		$user = $loginUser;
+		
+		if(in_array('Parent', $loginUser->roles)) {
+		  drupal_goto('messages');
+		}
+		elseif(in_array('Teacher', $loginUser->roles)) {
+		  $school_id = $loginUser->og_user_node['und'][0]['target_id'];
+		  drupal_goto('node/' . $school_id);
+		}
+	}
+	else {
+		drupal_set_message('Sorry, unrecognized username or password.' . l('Have you forgotten your password?', 'user/password'), 'error');
+	}
+	
+}
+
+function schoolknot_user_login_user_login(&$edit, $account) {
+  
+  $just_loged_in = user_load($account->uid);
+  if(in_array('School Administrator', $just_loged_in->roles)) {
+    if($just_loged_in->field_password_status['und'][0]['value'] == 'reset_requested') {
+      $just_loged_in->field_password_status['und'][0]['value'] = 'normal';
+      $account = user_save($just_loged_in, $user_fields);
+      drupal_goto('schoolknot/reset/password');
+    }
+    else if(in_array('School Administrator', $just_loged_in->roles)) {
+      $school = _get_school_node_id_for_school_admin_user();
+      drupal_goto('node/' . $school['nid']);
+    }
+  } 
+}
+
+function school_name_autocomplete($string = '') {
+	if ($string) {
+		$query = db_select('node', 'n');
+		$query->fields('n', array('title'))
+			->condition('n.title', db_like($string) . '%', 'LIKE')
+			->condition('n.type', 'school', '=')
+			->condition('n.status', '1', '=')
+			->range(0, 10);
+		$result = $query->execute();	
+		foreach ($result as $school) {
+			$matches[$school->title] = check_plain($school->title);
+		}
+	}
+	drupal_json_output($matches);
+}
+
+
+function schoolknot_user_login_preprocess_page(&$vars) {
+    global $user;
+    $agrs = arg();
+    if(in_array('Parent', $user->roles)) {
+    	$useObj = user_load($user->uid);
+    	if(!isset($useObj->field_agreement_status['und']) || $useObj->field_agreement_status['und'][0]['value'] != 1) {
+    		if(drupal_is_front_page() || ($agrs[0] != 'schoolknot_user_login' && $agrs[1] != 'user_agreement')) {
+    		  drupal_goto('schoolknot_user_login/user_agreement');
+    		}
+    	}
+    }
+    if(in_array('Teacher', $user->roles)) {
+    	$useObj = user_load($user->uid);
+    	if(!isset($useObj->field_agreement_status['und']) || $useObj->field_agreement_status['und'][0]['value'] != 1) {
+    		if(drupal_is_front_page() || ($agrs[0] != 'schoolknot_user_login' && $agrs[1] != 'user_agreement')) {
+    		  drupal_goto('schoolknot_user_login/user_agreement');
+    		}
+    	}
+    }
+    
+    if($_GET['logout'] == '1'){
+      drupal_set_message('Further instructions has been emailed to you.', 'status');
+    }
+    //$timestamp = REQUEST_TIME;
+    //drupal_set_message(url("schoolknot/reset/$user->uid/$timestamp/" . user_pass_rehash($user->pass, $timestamp, $user->login), array('absolute' => TRUE)));
+}
+
+function schoolknot_user_agreeement($form, &$form_state) {
+	drupal_set_title('Terms and Conditions');
+	$url = 'terms-and-conditions';
+	$path = drupal_lookup_path('source', $url);
+	$node_id = explode('/', $path);
+	$agreement_node = node_load($node_id[1]);
+	
+	$form['user_agreement'] = array(
+		'#markup' => '<div id="user-agreement-signup">' . $agreement_node->body['und'][0]['value'] . '</div>',
+	);
+	$form['student_email'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Email'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Email')),
+	  '#description' => 'Please enter your email address to complete registration process.<br>All communication from SchoolKnot will be delivered on this email address.',
+	);
+	$form['actions']['agreed'] = array(
+		'#type' => 'submit',
+		'#value' => t('I Agree'),
+	);
+	$form['actions']['disagree'] = array(
+		'#type' => 'submit',
+		'#value' => t('I Disgree'),
+	);
+		
+	return $form;
+}
+
+function schoolknot_user_agreeement_validate($form, &$form_state) {
+  if(!valid_email_address($form_state['values']['student_email'])) {
+    form_set_error('student_email', t('Please provide a valid email address.'));
+  }
+}
+
+function schoolknot_user_agreeement_submit($form, &$form_state) {
+	global $user;
+	$logedInUser = user_load($user->uid);
+	if($form_state['values']['op'] == 'I Agree') {
+		$logedInUser->field_agreement_status['und'][0]['value'] = 1;
+		$logedInUser->field_student_email_id['und'][0]['value'] = $form_state['values']['student_email'];
+		user_save($logedInUser);
+		
+		schoolknot_user_mail_send($user);
+		global $user;
+
+    watchdog('user', 'Session closed for %name.', array('%name' => $user->name));
+    module_invoke_all('user_logout', $user);
+    // Destroy the current session, and reset $user to the anonymous user.
+    session_destroy();
+    
+    drupal_goto('', array('query' => array('logout' => '1')));
+		
+	}
+	else {
+		drupal_set_message('You can not access schoolknot.com as a parent untill you don\'t agree on Terma and conditions.', 'error');
+	}
+}
+
+function schoolknot_create_teacher($form, &$form_state) {
+	
+	$form['field_student_registration_id'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Teacher Registration ID'), 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#required' => TRUE,
+	);
+	$form['field_student_first_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Teacher First Name'), 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+		'#required' => TRUE,
+	);
+	$form['field_student_middle_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Teacher Middle Name'), 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+	);
+	$form['field_student_last_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Teacher Last Name'), 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+	);
+	
+	$form['field_student_date_of_birth'] = array(
+    '#title' => 'Teacher Date of Joining',
+    '#type' => 'date_popup', // Provided by the date_popup module
+    '#date_format' => 'j F Y', // Uses the PHP date() format - http://php.net/manual/en/function.date.php
+    '#date_year_range' => '-30:0', // Limits the year range to the next two upcoming years
+    '#required' => TRUE,
+    //'#default_value' => $user_dob, // Default value must be in 'Y-m-d' format.
+  );
+
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Create Teacher'),
+	);
+	
+	return $form;
+}
+function schoolknot_create_teacher_validate($form, &$form_state) {
+	global $user;
+  	$user_groups = og_get_groups_by_user();
+  	$user_school = reset($user_groups['node']);
+	
+	$username = $user_school . '_' . $form_state['values']['field_student_registration_id'];
+	$username = strtolower($username);
+	$username = preg_replace('@[^a-z0-9_]+@','_',$username);
+	
+	$validate_user = user_load_by_name($username);
+	if($validate_user){
+		form_set_error('field_student_registration_id', t('Teacher with same registration id alreday exist.'));
+	}
+	$form_state['values']['username'] = $username;
+	$form_state['values']['og_user_node'] = $user_school;
+	
+	//$usersample = user_load(102);
+//	pr($usersample); die;
+}
+
+function schoolknot_create_teacher_submit($form, &$form_state) {
+	$user_fields = array(
+		'name' => $form_state['values']['username'],
+		//'mail' => $form_state['values']['field_student_email_id'],
+		'pass' => str_replace('-', '', $form_state['values']['field_student_date_of_birth']),
+		'status' => 1,
+		'roles' => array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+			6 => 'Teacher',
+		),
+	);
+	$user_fields['field_student_registration_id']['und'][0]['value'] = $form_state['values']['field_student_registration_id'];
+	
+	$user_fields['field_student_first_name']['und'][0]['value'] = $form_state['values']['field_student_first_name'];
+	$user_fields['field_student_middle_name']['und'][0]['value'] = $form_state['values']['field_student_middle_name'];
+	$user_fields['field_student_last_name']['und'][0]['value'] = $form_state['values']['field_student_last_name'];
+	
+	$user_fields['field_student_date_of_birth']['und'][0]['value'] = $form_state['values']['field_student_date_of_birth'] . ' 00:00:00';
+	$user_fields['og_user_node']['und'][0]['target_id'] = $form_state['values']['og_user_node'];
+	$user_fields['field_schooladmin_blocked']['und'][0]['value'] = 1;
+	$user_fields['field_password_status']['und'][0]['value'] = 'email_not_verified';
+	$account = user_save('', $user_fields);
+
+	drupal_set_message('User created successfully.', 'status');
+	drupal_goto('school-admin-teachers-list');
+}
+function schoolknot_create_user($form, &$form_state) {
+	
+	$form['field_student_registration_id'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Student Registration ID'), 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#required' => TRUE,
+	);
+	/*
+	$form['field_student_email_id'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Student Email ID'), 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#required' => TRUE,
+	);
+	*/
+	$form['field_student_first_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Student First Name'), 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+		'#required' => TRUE,
+	);
+	$form['field_student_middle_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Student Middle Name'), 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+	);
+	$form['field_student_last_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Student Last Name'), 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+	);
+	
+	$form['field_student_date_of_birth'] = array(
+    '#title' => 'Student Date of Birth',
+    '#type' => 'date_popup', // Provided by the date_popup module
+    '#date_format' => 'j F Y', // Uses the PHP date() format - http://php.net/manual/en/function.date.php
+    '#date_year_range' => '-30:0', // Limits the year range to the next two upcoming years
+    '#required' => TRUE,
+    //'#default_value' => $user_dob, // Default value must be in 'Y-m-d' format.
+  );
+	
+	// Get School Classes
+	global $user;
+	$result = db_select('node')
+		->fields('node', array('nid', 'title'))
+		->condition('uid', $user->uid, '=')
+		->condition('type', 'classes', '=')
+		->execute()->fetchAll();
+	$class_options = array();
+	foreach($result as $class) {
+		$class_options[$class->nid] = $class->title;
+	}
+	
+	$form['field_class'] = array(
+		'#type' => 'select',
+		'#title' => t('Class'),
+		'#options' => $class_options,
+	);
+
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Create Student'),
+	);
+	
+	return $form;
+}
+
+function schoolknot_create_user_validate($form, &$form_state) {
+	global $user;
+  	$user_groups = og_get_groups_by_user();
+  	$user_school = reset($user_groups['node']);
+	
+	$username = $user_school . '_' . $form_state['values']['field_student_registration_id'];
+	$username = strtolower($username);
+	$username = preg_replace('@[^a-z0-9_]+@','_',$username);
+	
+	$validate_user = user_load_by_name($username);
+	if($validate_user){
+		form_set_error('field_student_registration_id', t('Student with same registration id alreday exist.'));
+	}
+	/*
+	$validate_user = user_load_by_mail($form_state['values']['field_student_email_id']);
+	if($validate_user){
+		form_set_error('field_student_email_id', t('Email ID already exist.'));
+	}
+	*/
+	
+	$form_state['values']['username'] = $username;
+	$form_state['values']['og_user_node'] = $user_school;
+	
+	$usersample = user_load(102);
+//	pr($usersample); die;
+
+}
+
+function schoolknot_create_user_submit($form, &$form_state) {
+	$user_fields = array(
+		'name' => $form_state['values']['username'],
+		//'mail' => $form_state['values']['field_student_email_id'],
+		'pass' => str_replace('-', '', $form_state['values']['field_student_date_of_birth']),
+		'status' => 1,
+		'roles' => array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+			5 => 'Parent',
+		),
+	);
+	$user_fields['field_student_registration_id']['und'][0]['value'] = $form_state['values']['field_student_registration_id'];
+	
+	$user_fields['field_student_first_name']['und'][0]['value'] = $form_state['values']['field_student_first_name'];
+	$user_fields['field_student_middle_name']['und'][0]['value'] = $form_state['values']['field_student_middle_name'];
+	$user_fields['field_student_last_name']['und'][0]['value'] = $form_state['values']['field_student_last_name'];
+	
+	$user_fields['field_student_date_of_birth']['und'][0]['value'] = $form_state['values']['field_student_date_of_birth'] . ' 00:00:00';
+	
+	$user_fields['field_class']['und'][0]['target_id'] = $form_state['values']['field_class'];
+	$user_fields['og_user_node']['und'][0]['target_id'] = $form_state['values']['og_user_node'];
+	$user_fields['field_schooladmin_blocked']['und'][0]['value'] = 1;
+	$user_fields['field_password_status']['und'][0]['value'] = 'email_not_verified';
+	$account = user_save('', $user_fields);
+
+	drupal_set_message('User created successfully.', 'status');
+	drupal_goto('school-admin-students-list');
+}
+
+
+function schoolknot_edit_user($form, &$form_state, $uid) {
+	
+	$edit_user = user_load($uid);
+	
+	$label_student_registration_id = t('Student Registration ID');
+	$label_student_username = t('Student Username');
+	$label_student_first_name = t('Student First Name');
+	$label_student_middle_name = t('Student Middle Name');
+	$label_student_last_name = t('Student Last Name');
+	$label_student_date_of_birth = t('Student Date of Birth');
+	if(in_array('Teacher', $edit_user->roles)) {
+	  $label_student_username = t('Teacher Username');
+	  $label_student_registration_id = t('Teacher Registration ID');
+  	$label_student_first_name = t('Teacher First Name');
+  	$label_student_middle_name = t('Teacher Middle Name');
+  	$label_student_last_name = t('Techer Last Name');
+  	$label_student_date_of_birth = t('Date of Joining');
+	}
+	
+	$form['field_uid'] = array(
+		'#type' => 'hidden', 
+		'#value' => $uid,
+	);
+	
+	$schoolId = $edit_user->og_user_node['und'][0]['target_id'];
+	$user_name_without_school_id = str_replace($schoolId . '_', '', $edit_user->name);
+	/*
+	$form['field_student_username'] = array(
+		'#type' => 'textfield', 
+		'#title' => $label_student_username, 
+		'#default_value' => $user_name_without_school_id,
+	  '#disabled' => TRUE
+	);
+	*/
+	
+	$form['field_student_registration_id'] = array(
+		'#type' => 'textfield', 
+		'#title' => $label_student_registration_id, 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#default_value' => $edit_user->field_student_registration_id['und'][0]['value'],
+	);
+	/*
+	$form['field_student_email_id'] = array(
+		'#type' => 'textfield', 
+		'#title' => t('Student Email ID'), 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#default_value' => $edit_user->mail,
+	);
+	*/
+	$form['field_student_first_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => $label_student_first_name, 
+		'#size' => 60, 
+		'#maxlength' => 128, 
+		'#required' => TRUE,
+		'#default_value' => $edit_user->field_student_first_name['und'][0]['value'],
+	);
+	$form['field_student_middle_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => $label_student_middle_name, 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#default_value' => $edit_user->field_student_middle_name['und'][0]['value'],
+	);
+	$form['field_student_last_name'] = array(
+		'#type' => 'textfield', 
+		'#title' => $label_student_last_name, 
+		'#size' => 60, 
+		'#maxlength' => 128,
+		'#default_value' => $edit_user->field_student_last_name['und'][0]['value'],
+	);
+	$user_dob = _get_datefield_value_from_dob($edit_user->field_student_date_of_birth['und'][0]['value']);
+  $form['field_student_date_of_birth'] = array(
+    '#title' => $label_student_date_of_birth,
+    '#type' => 'date_popup', // Provided by the date_popup module
+    '#date_format' => 'j F Y', // Uses the PHP date() format - http://php.net/manual/en/function.date.php
+    '#date_year_range' => '-30:0', // Limits the year range to the next two upcoming years
+    '#required' => TRUE,
+    '#default_value' => $user_dob, // Default value must be in 'Y-m-d' format.
+  );
+	
+	if(!in_array('Teacher', $edit_user->roles)) {
+    // Get School Classes
+    global $user;
+    $result = db_select('node')
+      ->fields('node', array('nid', 'title'))
+      ->condition('uid', $user->uid, '=')
+      ->condition('type', 'classes', '=')
+      ->execute()->fetchAll();
+    $class_options = array();
+    foreach($result as $class) {
+      $class_options[$class->nid] = $class->title;
+    }
+    
+    $form['field_class'] = array(
+      '#type' => 'select',
+      '#title' => t('Class'),
+      '#options' => $class_options,
+      '#default_value' => $edit_user->field_class['und'][0]['target_id'],
+    );
+	}
+	
+	$form['status'] = array(
+		'#type' => 'radios',
+		'#title' => t('Status'),
+		'#options' => array(0 => 'Block', 1 => 'Active'),
+		'#default_value' => $edit_user->field_schooladmin_blocked['und'][0]['value'],
+	);
+
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Update User'),
+	);
+	return $form;
+}
+
+function schoolknot_edit_user_submit($form, &$form_state) {
+
+	$edit_user = user_load($form_state['values']['field_uid']);
+
+	/*
+	$user_fields = array(
+		'mail' => $form_state['values']['field_student_email_id'],
+	);
+	*/
+	$user_fields['field_student_registration_id']['und'][0]['value'] = $form_state['values']['field_student_registration_id'];
+	
+	$user_fields['field_student_first_name']['und'][0]['value'] = $form_state['values']['field_student_first_name'];
+	$user_fields['field_student_middle_name']['und'][0]['value'] = $form_state['values']['field_student_middle_name'];
+	$user_fields['field_student_last_name']['und'][0]['value'] = $form_state['values']['field_student_last_name'];
+	$user_fields['field_student_date_of_birth']['und'][0]['value'] = $form_state['values']['field_student_date_of_birth'] . ' 00:00:00';
+	
+	if(isset($form_state['values']['field_class'])) {
+	  $user_fields['field_class']['und'][0]['target_id'] = $form_state['values']['field_class'];
+	}
+	//$user_fields['status'] = $form_state['values']['status'];
+	$user_fields['field_schooladmin_blocked']['und'][0]['value'] = $form_state['values']['status'];
+	$account = user_save($edit_user, $user_fields);
+
+	drupal_set_message('User '.$form_state['values']['field_student_registration_id'].' edited successfully.', 'status');
+	drupal_goto('school-admin-students-list');
+	
+}
+
+function _get_datefield_value_from_dob($value) {
+	$valueArr = explode(' ', $value);
+	return $valueArr[0];
+}
+
+// Hide Register & Password tab from Login
+function schoolknot_user_login_menu_alter(&$item) {
+  // Hide the "Create new account" tab
+  $item['user/register']['type'] = MENU_CALLBACK;
+  $item['user']['type'] = MENU_CALLBACK;
+  $item['user/password']['type'] = MENU_CALLBACK;
+  // Drupal's default behavior is to show the user a log-in form, then their user profile.  We change this item to skip the unnecessary step.
+  $item['user/password'] = array(
+    'title' => 'Request new password',
+    'access arguments' 	=> array('schoolknot reset password'),
+    //'page callback' => 'drupal_get_form',
+    'page callback' => 'schoolknot_user_login_pass_reset',
+		//'page arguments' => array('schoolknot_user_login_pass_reset_page'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+}
+
+function schoolknot_user_login_pass_reset(){
+  $content = array();
+  $content['school_admin'] = drupal_get_form('schoolknot_user_login_pass_reset_page');
+  $content['parents'] = drupal_get_form('schoolknot_user_login_pass_reset_parents');
+  return $content;
+}
+
+function schoolknot_user_login_pass_reset_page($form, &$form_state){
+  
+  
+	$form['show_form'] = array(
+		'#markup' => '<div class="clearer"></div>'.l('School Admin', 'javascript:void(0);', 
+	    array('external' => TRUE, 
+	    			'attributes' => array('class' => 'form-submit forgetpassword', 'id' => 'show-schooladmin-forgetpassword')
+	    )
+	  ),
+	);
+	$form['form_helper'] = array(
+		'#markup' => 'This this form if you are a school administrator and want to reset your password.',
+		'#prefix' => '<div class="schooladmin-forgetpassword">',
+	);
+  $form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Username or e-mail address'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+    '#default_value' => (isset($_GET['name'])) ? $_GET['name'] : '',
+		'#attributes' => array('placeholder' => array('Username or e-mail address')),
+    
+	);
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('E-mail New Password'),
+	  '#suffix' => '</div>',
+	);
+	return $form;
+}
+
+function schoolknot_user_login_pass_reset_page_validate($form, &$form_state){
+  $name = trim($form_state['values']['username']);
+  // Try to load by email.
+  $users = user_load_multiple(array(), array('mail' => $name, 'status' => '1'));
+  $account = reset($users);
+  if (!$account) {
+    // No success, try to load by name.
+    $users = user_load_multiple(array(), array('name' => $name, 'status' => '1'));
+    $account = reset($users);
+  }
+  if (isset($account->uid)) {
+    form_set_value(array('#parents' => array('account')), $account, $form_state);
+  }
+  else {
+    form_set_error('name', t('Sorry, %name is not recognized as a user name or an e-mail address.', array('%name' => $name)));
+  }
+}
+
+function schoolknot_user_login_pass_reset_page_submit($form, &$form_state){
+  global $language;
+
+  $account = $form_state['values']['account'];
+  schoolknot_user_mail_send($account);
+  watchdog('user', 'Password reset instructions mailed to %name at %email.', array('%name' => $account->name, '%email' => $account->mail));
+  drupal_set_message(t('Further instructions have been sent to your e-mail address.'));
+  $form_state['redirect'] = 'user';
+  return;
+}
+
+function schoolknot_user_login_pass_reset_parents($form, &$form_state){
+  $form['show_form'] = array(
+		'#markup' => '<div class="clearer"></div>'.l('Student Parents', 'javascript:void(0);', 
+	    array('external' => TRUE, 
+	    			'attributes' => array('class' => 'form-submit forgetpassword', 'id' => 'show-parents-forgetpassword')
+	    )
+	  ),
+	);
+	$form['form_helper'] = array(
+  	'#markup' => 'This thsi form if you are a parent and want to reset your password.',
+	  '#prefix' => '<div class="parents-forgetpassword">',
+  );
+  $form['title'] = array(
+		'#type' => 'textfield',
+		'#title' => t('School Name'), 
+		'#description' => t('Type school name and select desired school from options below.'),
+		'#autocomplete_path' => 'schoolknot_user_login/school_autocomplete',
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Type school name')),
+	);
+	$form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Username'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Username')),
+	  '#description' => 'Please enter the student registration ID',
+	);
+	$form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('E-mail New Password'),
+	  '#suffix' => '</div>',
+	);
+		
+	return $form;
+}
+
+function schoolknot_user_login_pass_reset_parents_validate($form, &$form_state){
+  // Get School from school name
+	$query = db_select('node', 'n');
+	$query->fields('n', array('nid'))
+		->condition('n.title', $form_state['values']['title'], '=')
+		->condition('n.type', 'school', '=')
+		->condition('n.status', '1', '=')
+		->range(0, 1);
+	$result = $query->execute()->fetchAll();
+	$username = $result[0]->nid . '_' . $form_state['values']['username'];
+	$users = user_load_multiple(array(), array('name' => $username, 'status' => '1'));
+  $account = reset($users);
+  if (isset($account->uid)) {
+    form_set_value(array('#parents' => array('account')), $account, $form_state);
+  }
+  else {
+    form_set_error('name', t('Sorry, %name for %school is not recognized as a student registration ID.', array('%name' => $form_state['values']['username'], '%school' => $form_state['values']['title'])));
+  }
+}
+
+function schoolknot_user_login_pass_reset_parents_submit($form, &$form_state){
+  schoolknot_user_login_pass_reset_page_submit($form, $form_state);
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function schoolknot_user_token_info() {
+  $type = array(
+    'name' => t('Cloud Personalization'),
+    'description' => t('Tokens for Cloud Personalization Banner.'),
+  );
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function schoolknot_user_tokens($type, $tokens, array $data = array(), array $options = array()) {
+  
+}
+
+function schoolknot_user_login_mail($key, &$message, $params) {
+  
+  global $user;
+  $options = array(
+    'langcode' => $message['language']->language,
+  );
+
+  switch ($key) {
+    case 'user_authentication':
+      $message['subject'] = t('Activate your @site-name account.', array('@site-name' => variable_get('site_name', 'Drupal')), $options);
+      $message['body'][] = $params['body'];
+      break;
+  }
+  $headers = array(
+    'MIME-Version' => '1.0',
+    'Content-Type' => 'text/html; charset=UTF-8; format=flowed',
+    'Content-Transfer-Encoding' => '8Bit',
+    'X-Mailer' => 'Drupal',
+    'Return-Path' => 'support@schoolknot.com',
+    'Sender' => 'support@schoolknot.com',
+    'From' => 'support@schoolknot.com'
+  );
+  
+  foreach ($headers as $key => $value) {
+    $message['headers'][$key] = $value;
+  }
+}
+
+function schoolknot_user_mail_send($user) {
+  $userObj = user_load($user->uid);
+  $module = 'schoolknot_user_login';
+  $key = 'user_authentication';
+  
+  
+  if(in_array('Parent', $userObj->roles)) {
+    $to = $userObj->field_student_email_id['und'][0]['value'];
+  }
+  else if(in_array('School Administrator', $userObj->roles)) {
+    $to = $userObj->mail;
+  }
+  
+  $from = variable_get('site_mail', 'support@schoolknot.com');
+  $timestamp = REQUEST_TIME;
+  $password_reste_url = url("schoolknot/reset/$userObj->uid/$timestamp/" . user_pass_rehash($userObj->pass, $timestamp, $userObj->login), array('absolute' => TRUE));
+  $recipient_data = array('name' => _user_full_name_by_user_obj($user), 'password_reste_url' => $password_reste_url);
+  $mail_body = theme('user_authentication', array('data' => $recipient_data));
+  
+  
+  $params = array(
+		'subject' => 'SchoolKnot activation',
+		'body' => $mail_body,
+	);
+  
+  $language = language_default();
+  $send = TRUE;
+  
+  
+  $result = drupal_mail($module, $key, $to, $language, $params, $from, $send);
+  if ($result['result'] == TRUE) {
+  }
+  else {
+    drupal_set_message(t('There was a problem sending your message and it was not sent.'), 'error');
+  }
+
+}
+
+
+function schoolknot_user_login_theme() {
+  $module_path = drupal_get_path('module', 'schoolknot_user_login');
+  $base = array(
+    'path' => $module_path . '/email_templates',   
+  );
+  return array(
+    'user_authentication' => $base + array(
+      'template' => 'user-authentication',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),
+    'schooladmin_registration' => $base + array(
+      'template' => 'schooladmin-registration',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),   
+  ); 
+}
+
+function schoolknot_user_auth_account($form, &$form_state, $uid, $timestamp, $hashed_pass, $action = NULL) {
+global $user;
+
+  // When processing the one-time login link, we have to make sure that a user
+  // isn't already logged in.
+  if ($user->uid) {
+    // The existing user is already logged in.
+    if ($user->uid == $uid) {
+      
+      
+      if(in_array('Parent', $user->roles)) {
+       $user_name = _user_full_name_by_user_obj($user);
+      }
+      else if(in_array('School Administrator', $user->roles)) {
+        $user_name = ' administrator for ' . $user->name;
+      }
+      
+      drupal_set_message(t('You are logged in as %user. <a href="!user_edit">Change your password.</a>', array('%user' => $user_name, '!user_edit' => url("schoolknot/reset/password"))));
+    }
+    // A different user is already logged in on the computer.
+    else {
+      $reset_link_account = user_load($uid);
+      if (!empty($reset_link_account)) {
+        drupal_set_message(t('Another user (%other_user) is already logged into the site on this computer, but you tried to use a one-time link for user %resetting_user. Please <a href="!logout">logout</a> and try using the link again.',
+          array('%other_user' => $user->name, '%resetting_user' => $reset_link_account->name, '!logout' => url('user/logout'))));
+      } else {
+        // Invalid one-time link specifies an unknown user.
+        drupal_set_message(t('The one-time login link you clicked is invalid.'));
+      }
+    }
+    drupal_goto();
+  }
+  else {
+    // Time out, in seconds, until login URL expires. Defaults to 24 hours =
+    // 86400 seconds.
+    $timeout = variable_get('user_password_reset_timeout', 86400);
+    $current = REQUEST_TIME;
+    // Some redundant checks for extra security ?
+    $users = user_load_multiple(array($uid), array('status' => '1'));
+    if ($timestamp <= $current && $account = reset($users)) {
+      // No time out for first time login.
+      if ($account->login && $current - $timestamp > $timeout) {
+        drupal_set_message(t('You have tried to use a one-time login link that has expired. Please request a new one using the form below.'));
+        drupal_goto('user/password');
+      }
+      elseif ($account->uid && $timestamp >= $account->login && $timestamp <= $current && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login)) {
+        // First stage is a confirmation form, then login
+        if ($action == 'login') {
+          // Set the new user.
+          $user = $account;
+          // user_login_finalize() also updates the login timestamp of the
+          // user, which invalidates further use of the one-time login link.
+          $user_fields['status'] = 1;
+	        $user_fields['field_password_status']['und'][0]['value'] = 'reset_requested';
+          $account = user_save($user, $user_fields);
+	        
+          user_login_finalize();
+          watchdog('user', 'User %name used one-time login link at time %timestamp.', array('%name' => $account->name, '%timestamp' => $timestamp));
+          drupal_set_message(t('You have just used your one-time login link. It is no longer necessary to use this link to log in. Please change your password.'));
+          // Let the user's password be changed without the current password check.
+          $token = drupal_hash_base64(drupal_random_bytes(55));
+          $_SESSION['pass_reset_' . $user->uid] = $token;
+          drupal_goto('schoolknot/reset/password');
+        }
+        else {
+          $user = $account;
+	        $user_fields['field_password_status']['und'][0]['value'] = 'normal';
+          $account = user_save($user, $user_fields);
+          
+          $form['message'] = array('#markup' => t('<p>This is a one-time login for %user_name and will expire on %expiration_date.</p><p>Click on this button to log in to the site and change your password.</p>', array('%user_name' => _user_full_name_by_user_obj($user), '%expiration_date' => format_date($timestamp + $timeout))));
+          $form['help'] = array('#markup' => '<p>' . t('This login can be used only once.') . '</p>');
+          $form['actions'] = array('#type' => 'actions');
+          $form['actions']['submit'] = array('#type' => 'submit', '#value' => t('Log in'));
+          $form['#action'] = url("schoolknot/reset/$uid/$timestamp/$hashed_pass/login");
+          return $form;
+        }
+      }
+      else {
+        drupal_set_message(t('You have tried to use a one-time login link that has either been used or is no longer valid. Please request a new one using the form below.'));
+        drupal_goto('user/password');
+      }
+    }
+    else {
+      // Deny access, no more clues.
+      // Everything will be in the watchdog's URL for the administrator to check.
+      drupal_access_denied();
+    }
+  }
+}
+
+
+function schoolknot_user_reset_password($form, &$form_state){
+  $form['pass'] = array(
+  	'#type' => 'password', 
+  	'#title' => t('Password'), 
+  	'#maxlength' => 64, 
+  	'#size' => 15,
+  );
+  $form['pass'] = array(
+    '#type' => 'password_confirm', 
+    '#size' => 25,
+  );
+  $form['actions']['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Login'),
+	);
+		
+	return $form;
+}
+function schoolknot_user_reset_password_submit($form, &$form_state){
+  global $user;
+  $edit['pass'] = $form_state['values']['pass'];
+  user_save($user, $edit);
+  drupal_set_message('Password Successfully Reset.');
+  if(hide_create_school_check()) {
+    drupal_goto('node/add/school');
+  }
+  drupal_goto();
+}
+
+function schoolknot_parent_resend_auth_email($user_id = '') {
+  $account = user_load($user_id);
+  schoolknot_user_mail_send($account);
+  drupal_set_message("Account activation link has been emailed to you. Please check your spam mails also if you don't found it in inbox.");
+  drupal_goto();
+}
+
+function schoolknot_auth_account() {
+  $content = array();
+  $content['school_admin'] = drupal_get_form('schoolknot_auth_account_parents');
+  $content['parents'] = drupal_get_form('schoolknot_auth_account_school');
+  return $content;
+}
+
+function schoolknot_auth_account_school($form, &$form_state) {
+  $form['show_form'] = array(
+		'#markup' => '<div class="clearer"></div>'.l('School Admin', 'javascript:void(0);', 
+	    array('external' => TRUE, 
+	    			'attributes' => array('class' => 'form-submit forgetpassword', 'id' => 'show-schooladmin-auth-acccount')
+	    )
+	  ),
+	);
+	
+	$form['form_helper'] = array(
+		'#markup' => 'Resend you account authontication email again.',
+		'#prefix' => '<div class="schooladmin-auth-account">',
+	);
+  $form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Username'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Username')),
+	);
+	$form['primary-email'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Primary email'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Primary email')),
+	  '#description' => 'You primary email provided at time of registring school.',
+	);
+	$form['alternative-email'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Alternative email'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Alternative email')),
+	  '#description' => 'Alternative email id to get account authentication link. This email will be used for sending authentication link only and will not be used further.',
+	);
+	$form['submit'] = array(
+		'#type' => 'submit', 
+		'#value' => t('Send email'),
+	  '#suffix' => '</div>',
+  );
+	return $form;
+}
+
+function schoolknot_auth_account_school_validate($form, &$form_state) {
+
+  if(!valid_email_address($form_state['values']['primary-email'])) {
+    form_set_error('primary-email', t('Primary email provided here is not a valid email ID.'));
+    return;
+  }
+  if(!valid_email_address($form_state['values']['alternative-email'])) {
+    form_set_error('alternative-email', t('Alternative email provided here is not a valid email ID.'));
+    return;
+  }
+  
+  $school_admin_user = user_load_by_name($form_state['values']['username']);
+  if(!isset($school_admin_user->uid)) {
+    form_set_error('username', t('No school exist with given username.'));
+    return;
+  }
+  if(in_array('School Administrator', $school_admin_user->roles)) {
+    
+    if($form_state['values']['primary-email'] != $school_admin_user->mail) {
+      form_set_error('primary-email', t('Primary email provided here is not matching with one you provided while registring your school.'));
+    }
+    else {
+      
+      
+    }
+  }
+  else {
+    form_set_error('primary-email', t('It seems username provided here is not a school admin account.'));
+  }
+}
+
+function schoolknot_auth_account_school_submit($form, &$form_state) {
+  $school_admin_user = user_load_by_name($form_state['values']['username']);
+  
+  //send email now
+  $module = 'schoolknot_user';
+  $key = 'user_authentication';
+  
+  $mail_body = '';
+  $timestamp = REQUEST_TIME;
+  $password_reste_url = url("schoolknot/reset/$school_admin_user->uid/$timestamp/" . user_pass_rehash($school_admin_user->pass, $timestamp, $school_admin_user->login), array('absolute' => TRUE));
+  $mail_body .= _user_full_name_by_user_obj($school_admin_user) . ',
+  Thank you for registering at SchoolKnot.com. Please activate your account by clicking this link or copying and pasting it to your browser:
+  
+  ' . $password_reste_url . '
+  
+  You will asked for password reset after activation. Please be ready with your password string.
+  
+  --  SchoolKnot.com team';
+  
+  $params = array(
+    'subject' => 'Account details for ' . _user_full_name_by_user_obj($userObj) . ' at SchoolKnot.com',
+    'body' => $mail_body,
+    'theme' => 'user_authentication'
+  );
+  $language = language_default();
+  $send = TRUE;
+  $result = drupal_mail($module, $key, $school_admin_user->email, $language, $params, $from, $send);
+  if ($result['result'] == TRUE) {
+    drupal_set_message(t('Authentication email sent to ' . $school_admin_user->email . '.'), 'error');
+  }
+  else {
+    drupal_set_message(t('There was a problem sending your message and it was not sent.'), 'error');
+  }
+  $result = drupal_mail($module, $key, $form_state['values']['alternative-email'], $language, $params, $from, $send);
+  if ($result['result'] == TRUE) {
+    drupal_set_message(t('Authentication email sent to ' . $form_state['values']['alternative-email'] . '.'), 'error');
+  }
+  else {
+    drupal_set_message(t('There was a problem sending your message and it was not sent.'), 'error');
+  }
+}
+
+function schoolknot_auth_account_parents($form, &$form_state) {
+  $form['show_form'] = array(
+		'#markup' => '<div class="clearer"></div>'.l('Parents/Teacher', 'javascript:void(0);', 
+	    array('external' => TRUE, 
+	    			'attributes' => array('class' => 'form-submit forgetpassword', 'id' => 'show-parents-auth-acccount')
+	    )
+	  ),
+	);
+	
+	$form['form_helper'] = array(
+		'#markup' => 'Resend you account authontication email again.',
+		'#prefix' => '<div class="parents-auth-account">',
+	);
+	$form['school'] = array(
+		'#type' => 'textfield',
+		'#title' => t('School Name'), 
+		'#description' => t('Type school name and select desired school from options below.'),
+		'#autocomplete_path' => 'schoolknot_user_login/school_autocomplete',
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Type school name')),
+	);
+  $form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Username'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Student SR number')),
+	);
+	$form['primary-email'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Primary email'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Primary email')),
+	  '#description' => 'You primary email provided at time of agreement signup.',
+	);
+	$form['alternative-email'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Alternative email'), 
+		'#size' => 60,
+		'#maxlength' => 128,
+		'#required' => TRUE,
+		'#attributes' => array('placeholder' => array('Alternative email')),
+	  '#description' => 'Alternative email id to get account authentication link. This email will be used for sending authentication link only and will not be used further.',
+	);
+	$form['submit'] = array(
+		'#type' => 'submit', 
+		'#value' => t('Send email'),
+	  '#suffix' => '</div>',
+  );
+	return $form;
+}
+
+function schoolknot_auth_account_parents_validate($form, &$form_state) {
+  if(!valid_email_address($form_state['values']['primary-email'])) {
+    form_set_error('primary-email', t('Primary email provided here is not a valid email ID.'));
+    return;
+  }
+  if(!valid_email_address($form_state['values']['alternative-email'])) {
+    form_set_error('alternative-email', t('Alternative email provided here is not a valid email ID.'));
+    return;
+  }
+  
+  // Get School from school name
+	$query = db_select('node', 'n');
+	$query->fields('n', array('nid'))
+		->condition('n.title', $form_state['values']['school'], '=')
+		->condition('n.type', 'school', '=')
+		->condition('n.status', '1', '=')
+		->range(0, 1);
+	$result = $query->execute()->fetchAll();
+	if(!isset($result[0]->nid)) {
+	  form_set_error('school', t('School provided here does\'t exist.'));
+    return;
+	}
+	
+	
+	// Get User from SR Number
+	$query = db_select('users', 'u');
+	$query->leftJoin('field_data_field_student_registration_id', 'srnum', 'u.uid = srnum.entity_id');
+	$query->leftJoin('field_data_field_password_status', 'pass_status', 'u.uid = pass_status.entity_id');
+	$query->leftJoin('field_data_field_agreement_status', 'agree_status', 'u.uid = agree_status.entity_id');
+	$query->leftJoin('og_membership', 'og', 'u.uid = og.etid');
+	$query->fields('u', array('name'))
+	  ->fields('pass_status', array('field_password_status_value'))
+	  ->fields('agree_status', array('field_agreement_status_value'))
+		->condition('srnum.field_student_registration_id_value', check_plain($form_state['values']['username']), '=')
+		->condition('og.gid', check_plain($result[0]->nid), '=');
+	$result = $query->execute()->fetchAll();
+  
+  $user_details = reset($result);
+  if(!isset($user_details->name)) {
+    form_set_error('username', t('No strudent exist with provided registration number.'));
+    return;
+  }
+  
+  $userObj = user_load_by_name($user_details->name);
+  
+  if($userObj->field_student_email_id['und'][0]['value'] != $form_state['values']['primary-email']) {
+    form_set_error('primary-email', t('Primary email provided here is not matching with one you provided while agreement signup.'));
+    return;
+  }
+  
+  $form_state['values']['student_obj'] = $userObj;
+  
+}
+
+function schoolknot_auth_account_parents_submit($form, &$form_state) {
+  $parent_user_obj = $form_state['values']['student_obj'];
+  
+  //send email now
+  $module = 'schoolknot_user';
+  $key = 'user_authentication';
+  $to = $parent_user_obj->field_student_email_id['und'][0]['value'];
+  
+  $mail_body = '';
+  $timestamp = REQUEST_TIME;
+  $password_reste_url = url("schoolknot/reset/$parent_user_obj->uid/$timestamp/" . user_pass_rehash($parent_user_obj->pass, $timestamp, $parent_user_obj->login), array('absolute' => TRUE));
+  $mail_body .= _user_full_name_by_user_obj($parent_user_obj) . ',
+  Thank you for registering at SchoolKnot.com. Please activate your account by clicking this link or copying and pasting it to your browser:
+  
+  ' . $password_reste_url . '
+  
+  You will asked for password reset after activation. Please be ready with your password string.
+  
+  --  SchoolKnot.com team';
+  $params = array(
+    'subject' => 'Account details for ' . _user_full_name_by_user_obj($parent_user_obj) . ' at SchoolKnot.com',
+    'body' => $mail_body,
+    'theme' => 'user_authentication'
+  );
+  $language = language_default();
+  $send = TRUE;
+  $result = drupal_mail($module, $key, $to, $language, $params, $from, $send);
+  if ($result['result'] == TRUE) {
+    drupal_set_message(t('Authentication email sent to ' . $to . '.'), 'status');
+  }
+  else {
+    drupal_set_message(t('There was a problem sending your message and it was not sent.'), 'error');
+  }
+  $result = drupal_mail($module, $key, $form_state['values']['alternative-email'], $language, $params, $from, $send);
+  if ($result['result'] == TRUE) {
+    drupal_set_message(t('Authentication email sent to ' . $form_state['values']['alternative-email'] . '.'), 'status');
+  }
+  else {
+    drupal_set_message(t('There was a problem sending your message and it was not sent.'), 'error');
+  }
+  
+}
+
+//implement hook_form_FORM_ID_alter
+function schoolknot_user_login_form_user_register_form_alter(&$form, $form_state, $form_id) {
+  //define validation function
+  $form['#validate'][] = 'schoolknot_user_register_validate';
+  //overwrite the username help text
+  $form['account']['name']['#description'] = 'Username has to be between 5-15 characters long and can only contain letters and numbers';
+}
+
+function schoolknot_user_register_validate($form, &$form_state) {
+
+  $output['error'] = FALSE;
+  $username = $form_state['input']['name'];
+  $password = $form_state['input']['pass']['pass1'];
+
+  if (strlen($username) < 5 || strlen($username) > 15) {
+    $output['error'] = TRUE;
+    $output['msg'] = t('The username has to be between 5 and 15 characters long. ');
+  }
+  if (strpos($username,' ') > 0 || strpos($username,'.') > 0 || strpos($username,'-') > 0 || strpos($username,'_') > 0 || strpos($username, "'") !== FALSE ){
+    $output['error'] = TRUE;
+    $output['msg'] = t('Username cannot contain spaces . - _ ' . chr(39)  );
+  }
+
+//display username errors
+  if ($output['error']){
+    //drupal_set_message( $output['msg'], 'error');
+    form_set_error('name', $output['msg']);
+  }
+}
+
+
+function schoolknot_user_login_mail_alter (&$message) {
+  if($message['id'] == 'user_register_no_approval_required') {
+    
+    $userObj = $message['params']['account'];
+    
+    $timestamp = REQUEST_TIME;
+    $password_reste_url = url("schoolknot/reset/$userObj->uid/$timestamp/" . user_pass_rehash($userObj->pass, $timestamp, $userObj->login), array('absolute' => TRUE));
+    $recipient_data = array('name' => $userObj->name, 'password_reste_url' => $password_reste_url);
+    
+    $message['body'][0] = theme('schooladmin_registration', array('data' => $recipient_data));
+    $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+  
+  }
+}

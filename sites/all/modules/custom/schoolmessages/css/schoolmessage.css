@@ -1,0 +1,7 @@
+.schoolmessage-message-class{display:none;}
+.message-recipent-type #edit-recipent-type{padding:5px; color: #2E79B2; border: 2px solid #B3B3B3;font-family: opensans;}
+.schoolmessage-message-class #edit-class{padding:5px; color: #2E79B2; border: 2px solid #B3B3B3;font-family: opensans;}
+#schoolmessages-form .description, #usermessage-form .description {font-style: italic; color: #B3B3B3; font-size: 11px; font-family: opensans;}
+#schoolmessages-form label, #usermessage-form label{font-weight: bold; padding-bottom: 5px;}
+#schoolmessages-form #edit-parent, #usermessage-form #edit-teacher{border: 2px solid #B3B3B3;}
+#schoolmessages-form #edit-submit, #usermessage-form #edit-submit {background: url("../images/btnBack.gif") no-repeat scroll left top rgba(0, 0, 0, 0);border: medium none; color: #FFFFFF; cursor: pointer; display: inline-block; float: right; height: 22px; line-height: 20px; margin-top: 5px;padding: 0;text-align: center; width: 78px;}

@@ -1,0 +1,169 @@
+<?php
+  
+  /**
+ * Implements hook_permission().
+ */
+function jstor_external_data_read_permission() {
+  return array(
+    'administer external data reader' => array(
+      'title' => t('administer external data reader'),
+      'description' => t('Allows a user to configure and administrate external data reader.'),
+    ),
+  );
+}
+
+/**
+ * Implements of hook_menu()
+ */
+function jstor_external_data_read_menu() {
+  $items['admin/config/services/jstor-external-data-reader'] = array(
+    'title' => 'External data reader settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('jstor_external_data_read_form'),
+    'access arguments' => array('administer external data reader'),
+    'type' => MENU_NORMAL_ITEM,
+    'description' => t('Configure External data reader.'),
+    'weight' => 10,
+    'file' => 'jstor_external_data_read.admin.inc',
+  );
+  return $items;
+}
+
+function jstor_external_data_read_cron(){
+  $last_upadte    = variable_get('external_data_read_last_update', '');
+  $before_1_day   = time() - (60*60*24);
+  $before_1_week  = time() - (60*60*24*7);
+  $before_1_month = time() - (60*60*24*30);
+  
+  $cron_priode    = variable_get('reader_settings_periodic_import', '');
+  $is_time_to_ececute = false;
+  if($cron_priode == 'everyday' && $last_upadte < $before_1_day) {
+    $is_time_to_ececute = true;
+  }
+  elseif($cron_priode == 'everyweek' && $last_upadte < $before_1_week) {
+    $is_time_to_ececute = true;
+  }
+  elseif($cron_priode == 'everymonth' && $last_upadte < $before_1_month) {
+    $is_time_to_ececute = true;
+  }
+  if($is_time_to_ececute) {
+    parse_external_files();
+    variable_set('external_data_read_last_update', time());
+    drupal_set_message(t('External files parsed successfully'));
+  }
+}
+
+function parse_external_files(){
+  
+    // Parse Archival Journal Title List
+    $archival_journal_title_list_source = variable_get('archival_journal_title_list_source_url', '');
+    if($archival_journal_title_list_source != ''){
+      
+      $ch = curl_init();
+      curl_setopt($ch,CURLOPT_URL,$archival_journal_title_list_source);
+      curl_setopt($ch,CURLOPT_RETURNTRANSFER,1);
+      curl_setopt($ch,CURLOPT_CONNECTTIMEOUT,0);
+      
+      $proxy_url = variable_get('proxy_url', '');
+      $proxy_port = variable_get('proxy_port', '');
+      if($proxy_url != '' && $proxy_port != ''){
+        curl_setopt($ch, CURLOPT_PROXYPORT, $proxy_port);
+        curl_setopt($ch, CURLOPT_PROXY, $proxy_url);
+      }
+      curl_setopt($ch, CURLOPT_COOKIEJAR, '/tmp/cookies.txt');//Any temp location no need to check file is present or not
+      curl_setopt($ch, CURLOPT_COOKIEFILE, '/tmp/cookies.txt');//Any temp location no need to check file is present or not
+      $downloaded = curl_exec($ch);
+      curl_close($ch);
+      
+      $path = drupal_realpath('public://') . DIRECTORY_SEPARATOR . variable_get('archival_journal_title_list_dest_file_path', '');//Path where you want to store
+      drupal_mkdir($path, 0777, TRUE);
+      $destination = $path . DIRECTORY_SEPARATOR . variable_get('archival_journal_title_list_dest_file_name', '');
+      file_put_contents($destination, $downloaded);
+    }
+    
+    // Parse CSP Title List
+    $csp_title_list_source_url = variable_get('csp_title_list_source_url', '');
+    if($csp_title_list_source_url != ''){
+      
+      $ch = curl_init();
+      curl_setopt($ch,CURLOPT_URL,$csp_title_list_source_url);
+      curl_setopt($ch,CURLOPT_RETURNTRANSFER,1);
+      curl_setopt($ch,CURLOPT_CONNECTTIMEOUT,0);
+      
+      $proxy_url = variable_get('proxy_url', '');
+      $proxy_port = variable_get('proxy_port', '');
+      if($proxy_url != '' && $proxy_port != ''){
+        curl_setopt($ch, CURLOPT_PROXYPORT, $proxy_port);
+        curl_setopt($ch, CURLOPT_PROXY, $proxy_url);
+      }
+      curl_setopt($ch, CURLOPT_COOKIEJAR, '/tmp/cookies.txt');//Any temp location no need to check file is present or not
+      curl_setopt($ch, CURLOPT_COOKIEFILE, '/tmp/cookies.txt');//Any temp location no need to check file is present or not
+      $downloaded = curl_exec($ch);
+      curl_close($ch);
+      
+      $path = drupal_realpath('public://') . DIRECTORY_SEPARATOR . variable_get('csp_title_list_dest_file_path', '');//Path where you want to store
+      drupal_mkdir($path, 0777, TRUE);
+      $destination = $path . DIRECTORY_SEPARATOR . variable_get('csp_title_list_dest_file_name', '');
+      file_put_contents($destination, $downloaded);
+    }
+    
+    // Parse Archival Journal Current Particapnts
+    $current_participants_xml_file_source = variable_get('current_participants_xml_file_source', '');
+    if($current_participants_xml_file_source != ''){
+      $url_parts = parse_url($current_participants_xml_file_source);
+      $rejoined_url = $url_parts['scheme'] . '://' . $url_parts['host'] . $url_parts['path'] . '?' . $url_parts['query'];
+      
+      $ch = curl_init();    
+      curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
+      curl_setopt($ch, CURLOPT_HEADER, false);
+      curl_setopt($ch, CURLOPT_URL, $rejoined_url); 
+      $proxy_url = variable_get('proxy_url', '');
+      $proxy_port = variable_get('proxy_port', '');
+      if($proxy_url != '' && $proxy_port != ''){
+        curl_setopt($ch, CURLOPT_PROXYPORT, $proxy_port);
+        curl_setopt($ch, CURLOPT_PROXY, $proxy_url);
+      }
+      if($url_parts['user'] != '' && $url_parts['pass'] != '' ) {
+        $username = $url_parts['user'];
+        $password = $url_parts['pass'];
+        curl_setopt($ch, CURLOPT_USERPWD, "$username:$password"); 
+      }
+      $downloaded = curl_exec($ch);
+      
+      $path = drupal_realpath('public://') . DIRECTORY_SEPARATOR . variable_get('current_participants_xml_file_dest_path', '');//Path where you want to store
+      drupal_mkdir($path, 0777, TRUE);
+      $destination = $path . DIRECTORY_SEPARATOR . variable_get('current_participants_xml_file_dest_name', '');
+      file_put_contents($destination, $downloaded);
+    }
+    
+    // Parse CSP Current Particapnts
+    $csp_current_participants_xml_file_source = variable_get('csp_current_participants_xml_file_source', '');
+    if($csp_current_participants_xml_file_source != ''){
+      $url_parts = parse_url($csp_current_participants_xml_file_source);
+      $rejoined_url = $url_parts['scheme'] . '://' . $url_parts['host'] . $url_parts['path'] . '?' . $url_parts['query'];
+      
+      $ch = curl_init();    
+      curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
+      curl_setopt($ch, CURLOPT_HEADER, false);
+      curl_setopt($ch, CURLOPT_URL, $rejoined_url); 
+      $proxy_url = variable_get('proxy_url', '');
+      $proxy_port = variable_get('proxy_port', '');
+      if($proxy_url != '' && $proxy_port != ''){
+        curl_setopt($ch, CURLOPT_PROXYPORT, $proxy_port);
+        curl_setopt($ch, CURLOPT_PROXY, $proxy_url);
+      }
+      if($url_parts['user'] != '' && $url_parts['pass'] != '' ) {
+        $username = $url_parts['user'];
+        $password = $url_parts['pass'];
+        curl_setopt($ch, CURLOPT_USERPWD, "$username:$password"); 
+      }
+      $downloaded = curl_exec($ch);
+      
+      $path = drupal_realpath('public://') . DIRECTORY_SEPARATOR . variable_get('csp_current_participants_xml_file_dest_path', '');//Path where you want to store
+      drupal_mkdir($path, 0777, TRUE);
+      $destination = $path . DIRECTORY_SEPARATOR . variable_get('csp_current_participants_xml_file_dest_name', '');
+      file_put_contents($destination, $downloaded);
+    }
+    
+}
+

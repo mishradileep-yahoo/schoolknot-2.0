@@ -1,0 +1,388 @@
+<?php
+
+/**
+ * @file
+ * Module to restrict the number of nodes a user or role may create.
+ */
+
+/**
+ * Implementation of hook_menu()
+ */
+function schoolrating_menu() {
+  $items = array();
+  $items['rating'] = array(
+  	'title' => 'Rating',
+    'description' => 'Rating',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolrating_rate_form'),
+  	'access arguments' => array('rating permission'),
+  	'type' => MENU_NORMAL_ITEM,
+  );
+  $items['rating-settings'] = array(
+  	'title' => 'Rating Settings',
+    'description' => 'Rating Settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('schoolrating_rate_settings_form'),
+  	'access arguments' => array('rating settings permission'),
+  	'type' => MENU_NORMAL_ITEM,
+  );
+  $items['rating-report'] = array(
+  	'title' => 'Rating Report',
+    'description' => 'Rating Report',
+    'page callback' => 'schoolrating_rating_report',
+  	'access arguments' => array('rating settings permission'),
+  	'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * 
+ * Impementation of hook_permission()
+ */
+function schoolrating_permission() {
+  return array(
+    'rating permission' => array(
+      'title' => t('show rating'),
+      'description' => t('Perform Rating for my School.'),
+    ),
+    'rating settings permission' => array(
+      'title' => t('rating settings permission'),
+      'description' => t('Allow to enable disbale ratting settings.'),
+    ),
+  );
+}
+
+
+function schoolrating_rate_form($form, &$form_state) {
+  if(_get_school_rating_link_for_parent() === false) {
+	$form['form_close_markup'] = array(
+		'#markup' => 'School administrator have been disbaled school rating.',
+	);
+	return $form;
+  }
+	
+  global $user;
+  $schoolrating_module_path = drupal_get_path('module', 'schoolrating');
+  drupal_add_js($schoolrating_module_path . '/js/schoolrating.js');
+  drupal_add_css($schoolrating_module_path . '/css/schoolrating.css');
+  
+  $result_exist = '';
+  //echo $user->uid;
+  $query = db_select('node', 'n');
+  $query->fields('n', array('title','nid'));
+  $query->condition('n.type', 'school_rating');
+  $query->condition('n.status', 1);
+  $results = $query->execute();
+  
+  $rate_ans_query = db_select('node', 'n');
+  $rate_ans_query->fields('n', array('nid'));
+  $rate_ans_query->fields('rate_answer', array('field_rate_answers_value'));
+  $rate_ans_query->join('field_data_field_rate_user_id', 'rate_user_id', 'n.nid = rate_user_id.entity_id');
+  $rate_ans_query->join(' field_data_field_rate_answers', 'rate_answer', 'n.nid = rate_answer.entity_id');
+  $rate_ans_query->condition('rate_user_id.field_rate_user_id_value', $user->uid,'=');
+  $rate_ans_obj = $rate_ans_query->execute();
+  $rate_ans_count = $rate_ans_obj->rowCount();
+  $rate_ans_result = $rate_ans_obj->fetchAll();
+  
+  if($rate_ans_count > 0) {
+    $user_rate_answers = unserialize($rate_ans_result[0]->field_rate_answers_value);
+  }
+  
+  
+  $question_ids = array();
+  
+  foreach ($results as $result) {
+      $question = $result->title;
+      $ques_id = $result->nid;
+      
+      $question_ids[] = $ques_id;
+         $options = array(1 => '1', 2 => '2', 3 => '3', 4 => '4', 5 => '5', );
+      
+         $form['question_'.$result->nid] = array(
+    		'#type' => 'radios',
+    		'#title' => $question,
+    		'#options' => $options,
+        '#default_value' => (isset($user_rate_answers[$result->nid])) ? $user_rate_answers[$result->nid] : '',
+        //'#attributes' => array('class'=> array('star')),
+        '#prefix' => '<div class="rating">',
+        '#suffix' => '</div>',
+        );
+   }
+    $question_ids_str = implode(',', $question_ids);
+    
+    $form['question_ids'] = array('#type' => 'hidden', '#value' => $question_ids_str);
+    
+    
+    $form['submit'] = array(
+  		'#type' => 'submit',
+  		'#value' => t('Submit rate'),
+    );
+       //print_r($result_exist);
+    if($rate_ans_count > 0){
+      drupal_set_message(t('You have alredy submited form'));
+      $form['submit']['#disabled'] = TRUE;    
+    }
+  //pr($form);
+    return $form;
+       //print $key.'as'.$value;
+  
+}
+
+function schoolrating_rate_form_validate($form, &$form_state) {
+  $question_ids = explode(',', $form_state['values']['question_ids']);
+  foreach($question_ids as $question) {
+    $question_input_id = 'question_'.$question;
+    if(!isset($form_state['values'][$question_input_id]) || $form_state['values'][$question_input_id] == '') {
+      form_set_error( 'choice', t("Please 'Check' all the options"));
+      break;
+    }
+  }
+}
+
+function schoolrating_rate_form_submit($form, &$form_state) {
+  $form_state['rebuild'] = TRUE;
+  $question_ids = explode(',', $form_state['values']['question_ids']);
+  $rate_result_arr = array();
+  $ans = 0;
+  $result_data;
+  foreach($question_ids as $question) {
+    $question_input_id = 'question_'.$question;
+    $rate_result_arr[$question] = $form_state['values'][$question_input_id];
+  }
+  $rate_result_str = serialize($rate_result_arr);
+  
+    global $user;
+    $node = new stdClass();
+    $node->type = 'rate_answers';
+    node_object_prepare($node);
+    
+    $node->title    = 'rate answer for User - ' . $user->name ;
+    $node->language = LANGUAGE_NONE;
+    
+    $node->field_rate_user_id[$node->language][0]['value']   = $user->uid;
+    $node->field_rate_user_id[$node->language][0]['safe_value'] = $user->uid;
+    
+    $node->field_rate_answers[$node->language][0]['value']   = $rate_result_str;
+    $node->field_rate_answers[$node->language][0]['safe_value'] = $rate_result_str;
+    
+    $school = _get_school_node_id_for_school_admin_user($user->uid);
+    $node->field_school_id[$node->language][0]['target_id'] = $school['nid'];
+    
+    $result_data = unserialize($rate_result_str);
+    foreach ($result_data as $key => $value){
+    	$ans += $value;
+    }
+    $cnt_ques = count($result_data);
+    $average = $ans/$cnt_ques;
+    $node->field_average_of_rating[$node->language][0]['value'] = round($average,3);
+ 
+    node_save($node);
+    drupal_set_message(t('Your rating are saved successfully.'), 'status');
+}
+
+function schoolrating_rate_settings_form($form, &$form_state) {
+	
+	$query = db_select('node', 'n');
+	$query->fields('n', array('title','nid'));
+	$query->condition('n.type', 'school_rating');
+	$query->condition('n.status', 1);
+	$results = $query->execute()->fetchAll();
+	
+	$admin_school = _get_school_node_id_for_school_admin_user();
+
+	$query = db_select('node', 'n');
+	$query->join('field_data_field_school_id', 'sid', 'n.nid = sid.entity_id');
+	$query->join('field_data_field_enable_rating', 'rating', 'n.nid = rating.entity_id');
+	$query
+	  ->fields('rating', array('field_enable_rating_value', 'entity_id', 'bundle'))
+	  ->condition('n.type', 'school_rating_settings', '=')
+	  ->condition('sid.field_school_id_target_id', $admin_school['nid'], '=');
+	  
+	$resultCount = $query->execute()->rowCount();
+	$enable_rating_default = 0;
+	
+	if($resultCount > 0) {
+		$result = $query->execute()->fetchAll();
+		$enable_rating_default = $result[0]->field_enable_rating_value;
+	}
+	
+	$rating_criteria_markup = '<div class="reting-seting-form"><h4>School rating Criteria</h4><ul>';
+	foreach ($results as $rating_criteria) {
+		$rating_criteria_markup .= '<li>' . $rating_criteria->title . '</li>';
+	}
+	$rating_criteria_markup .= '</ul></div>';
+	
+	$form['enable_rating'] = array(
+		'#type' => 'checkbox',
+		'#default_value' => $enable_rating_default, 
+		'#title' => t("Click this 'check box' to enable school to be rated by the parents. Parents will be notified for the rating release."),
+	);
+	$form['contact_information'] = array(
+		'#markup' => $rating_criteria_markup,
+	);
+	$form['submit'] = array(
+  		'#type' => 'submit',
+  		'#value' => t('Save Setings'),
+    );
+	return $form;
+}
+
+function schoolrating_rate_settings_form_submit($form, &$form_state) {
+	
+	$admin_school = _get_school_node_id_for_school_admin_user();
+
+	$query = db_select('node', 'n');
+	$query->join('field_data_field_school_id', 'sid', 'n.nid = sid.entity_id');
+	$query->join('field_data_field_enable_rating', 'rating', 'n.nid = rating.entity_id');
+	$query
+	  ->fields('rating', array('field_enable_rating_value', 'entity_id', 'bundle'))
+	  ->condition('n.type', 'school_rating_settings', '=')
+	  ->condition('sid.field_school_id_target_id', $admin_school['nid'], '=');
+	
+	$resultCount = $query->execute()->rowCount();
+	$result = $query->execute()->fetchAll();
+	
+	// Data not exist - Create new one
+	if($resultCount < 1) {
+		$node = new stdClass();
+	    $node->type = 'school_rating_settings';
+	    node_object_prepare($node);
+	    
+	    $node->title    = 'Rating Satting for - ' . $admin_school['title'];
+    	$node->language = LANGUAGE_NONE;
+    	
+    	$node->field_school_id[$node->language][] = array( 'target_id' => $admin_school['nid']);
+    	
+    	$node->field_enable_rating['und'][0]['value'] = $form_state['values']['enable_rating'];
+    	
+    	node_save($node);
+		
+		
+	} else { // Data exist - upadte it
+		$setttingNode = node_load($result[0]->entity_id);
+		$setttingNode->field_enable_rating['und'][0]['value'] = $form_state['values']['enable_rating'];
+		node_save($setttingNode);
+	}
+
+	
+	
+	if($form_state['values']['enable_rating'] == 1) {
+	
+		$school_id = _get_school_node_id_for_school_admin_user();
+	    $parents_for_school = _get_all_parents_for_school($school_id['nid']);
+	    
+	    $parent_ids = array();
+	    foreach($parents_for_school as $parent_id => $parent) {
+	      array_push($parent_ids, $parent_id);
+	    }
+	    $recipients = user_load_multiple($parent_ids);
+	    
+	    $subject = 'Request for submit school rating from' . $school_id['title'];
+	    $message = 'Dear Parent,' . "\n";
+
+
+	    $message .= $school_id['title'] . ' has enabled the school rating form. You can rate the school now!!.' . "\n";
+	    $message .= 'You may access school rating from from below link.' . "\n";
+	    $message .= l('School Rating Form', 'rating') . "\n";
+      $message .= '' . "\n";
+	    $message .= 'Thanks,' . "\n";
+	    $message .= 'Team SchoolKnot  ' . "\n";
+	    
+	    _send_private_message($recipients, $subject, $message, 3);
+	    drupal_set_message(t('Rating is released to the parents successfully!'), 'status');
+	
+	}
+  else {
+	drupal_set_message('Rating is disabled to the parents.', 'status'); }
+	
+}
+
+function _get_school_rating_link_for_parent() {
+	global $user;
+	if(!in_array('Parent', $user->roles)) return false;
+	$admin_school = _get_school_node_id_for_school_admin_user();
+	
+	$query = db_select('node', 'n');
+	$query->join('field_data_field_school_id', 'sid', 'n.nid = sid.entity_id');
+	$query->join('field_data_field_enable_rating', 'rating', 'n.nid = rating.entity_id');
+	$query
+	  ->fields('rating', array('field_enable_rating_value', 'entity_id', 'bundle'))
+	  ->condition('n.type', 'school_rating_settings', '=')
+	  ->condition('sid.field_school_id_target_id', $admin_school['nid'], '=');
+	  
+	$resultCount = $query->execute()->rowCount();
+	$result = $query->execute()->fetchAll();
+	
+	if($resultCount > 0 && $result[0]->field_enable_rating_value == 1) {
+		return '<li>' . l('School Rating<span></span>', 'rating', array('html'=>TRUE, 'class' =>'active')) . '</li>';
+	}
+	else {
+		return false;
+	}
+}
+
+function schoolrating_rating_report() {
+	
+	$admin_school = _get_school_node_id_for_school_admin_user();
+	
+	$query = new EntityFieldQuery();
+	$query->entityCondition('entity_type', 'node')
+	  ->entityCondition('bundle', 'rate_answers')
+	  ->propertyCondition('status', 1)
+	  ->fieldCondition('field_school_id', 'target_id', $admin_school['nid'], '='); // Run the query as user 1.
+	
+	$result = $query->execute();
+	
+	$rate_answers_user = array();
+	$rate_questions_ids = array();
+	$rate_answers_que = array();
+	
+	if (isset($result['node'])) {
+		$nodes = entity_load('node', array_keys($result['node']));
+		foreach ($nodes as $rate) {
+			$rate_questions_ids = array_keys((unserialize($rate->field_rate_answers['und'][0]['value'])));
+			$rate_answers_user[$rate->field_rate_user_id['und'][0]['value']] = unserialize($rate->field_rate_answers['und'][0]['value']);
+		}
+	}
+	
+	if(count($rate_answers_user) > 0) {
+		foreach ($rate_answers_user as $user_answers) {
+			foreach ($rate_questions_ids as $question_id) {
+				$rate_answers_que[$question_id]['answers'][] =  $user_answers[$question_id];
+			}
+		}
+	}
+	
+	$question_nodes = node_load_multiple($rate_questions_ids);
+	//pr($question_nodes);
+	
+	if(count($rate_answers_que) > 0) {
+		foreach ($rate_answers_que as $que_id => $answers) {
+			$rate_answers_que[$que_id]['avg'] = average_specific_formating(array_sum($answers['answers']) / count($answers['answers']));
+			$rate_answers_que[$que_id]['max'] = max($answers['answers']);
+			$rate_answers_que[$que_id]['min'] = min($answers['answers']);
+			$rate_answers_que[$que_id]['total'] = count($answers['answers']);
+			$rate_answers_que[$que_id]['title'] = $question_nodes[$que_id]->title;
+		}
+	}
+	
+	
+	$data = array('rating_data' => $rate_answers_que, 'school_data' => $admin_school);
+	//pr($data);
+	return theme('schoolrating_report', array('data' => $data));
+}
+
+
+function schoolrating_theme() {
+  $module_path = drupal_get_path('module', 'schoolrating');
+  $base = array(
+    'path' => $module_path . '/theme',   
+  );
+  return array(
+    'schoolrating_report' => $base + array(
+      'template' => 'schoolrating_report',  //leave off .tpl.php
+      'variables' => array('data' => NULL,),
+    ),    
+  ); 
+}
