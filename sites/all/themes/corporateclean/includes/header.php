@@ -4,7 +4,7 @@
 <div id="header">
 	<div class="logo">
 		<a href="<?php print base_path(); ?>" class="logo">
-			<img src="<?php print base_path() . drupal_get_path('theme', 'corporateclean') ;?>/images/logo.png"  />
+			<img src="<?php print base_path() . drupal_get_path('theme', 'corporateclean') ;?>/images/logo-new.png"  />
 		</a>
 	</div>
 	<div class="logo-home-icon">
